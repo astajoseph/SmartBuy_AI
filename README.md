@@ -70,7 +70,7 @@ _Last updated: 2026-10-20._
 | 11 | 2026-10-16 | Automated collection on GitHub Actions every 3 h | 18 / 18 scheduled + manual runs successful (latest 2026-10-19) |
 | 12 | 2026-10-17 | System architecture diagram (`docs/SmartBuy_AI_Architecture.png`) | rendered + visually checked |
 | 13 | 2026-10-19 | Repository cleanup: presentations and hand-out text files kept local only | `.gitignore` |
-| 14 | 2026-10-20 | Moved to its own repository `astajoseph/SmartBuy_AI` with its own workflows | — |
+| 14 | 2026-10-20 | Moved to its own repository `astajoseph/SmartBuy_AI` with its own workflows; removed from `AG_AI` | 150 tests pass locally |
 
 ### Current status
 
@@ -84,10 +84,11 @@ _Last updated: 2026-10-20._
 | Gemini assistant | Working (gemini-2.5-flash) |
 | Backend tests | 150 passing (`backend/tests`) |
 | Frontend | Type-check and production build clean |
-| Scheduling | GitHub Actions `smartbuy-collect` every 3 hours — running without any local machine |
+| Scheduling | GitHub Actions `smartbuy-collect` every 3 hours — waiting for the repository secret after the move |
 
 ### Pending / next
 
+- [ ] **Set the secret `SMARTBUY_DATABASE_URL` on this repository** (required for scheduled collection)
 - [ ] Rotate the Supabase password, then update `.env` and the GitHub secret `SMARTBUY_DATABASE_URL`
 - [ ] Set `ADMIN_API_TOKEN` to enable the Admin page
 - [ ] Products 2 and 3 (price-history URL + vendor URLs)

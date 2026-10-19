@@ -249,3 +249,8 @@ triggered manually to verify (result recorded below).
   diagram footer now shows the new repository (PNG re-rendered).
 * Note: entries above mention `AG_AI/smartbuy-ai/…` and `data/extract_dashboard_timeseries.py` — those refer to the
   original location and to the separate extractor tool in `AG_AI/data/`.
+* Completed the move: `smartbuy-ai/` and the two SmartBuy workflows were removed from `AG_AI` (commit 65049c5), so
+  collection now runs only from this repository. Local working copy: `/home/asta/SmartBuy_AI` (Python venv and
+  node_modules moved here; 150 tests pass). The local presentation and overview text file were deleted on request.
+* **Pending:** set the secret `SMARTBUY_DATABASE_URL` on this repository — until then the scheduled collection
+  here cannot reach Supabase.
