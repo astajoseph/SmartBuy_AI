@@ -1,0 +1,67 @@
+# SmartBuy AI product registry. Sync into the database with:
+#   python scripts/register_products.py            (or POST /api/admin/sync-registry)
+# Schema: see products.example.yaml and docs/extraction.md. Adding a product or vendor needs no code change.
+
+products:
+  - product_id: olay-total-effects-50g
+    name: "Olay Total Effects Day Cream SPF 15 (Vitamin B5, Niacinamide), 50 g"
+    brand: Olay
+    category: beauty
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B00ENZT4M8   # Amazon ASIN shown by the source page
+      size: 50 g
+    price_source:
+      url: https://pricehistory.app/p/olay-total-effects-day-cream-vitamin-b5-u4L6fhce
+      adapter: pricehistory_app
+      collection_interval_minutes: 180   # matches the GitHub Actions schedule (every 3 h)
+      adapter_config:
+        # The page draws its history chart from /api/price/<id>, a path robots.txt disallows.
+        # false = let the headless browser load the page like a visitor would (same as
+        # data/extract_dashboard_timeseries.py). Set true to honour robots.txt for those sub-requests.
+        respect_robots_for_subrequests: false
+        wait_seconds: 6
+    # Vendor pages: fetched ONLY when a user asks for vendor / EMI / review analysis (cache first).
+    # URLs are the links you provided with ad-tracking parameters (gclid, utm_*, ref=...) removed.
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B00ENZT4M8
+        adapter: amazon_in
+        expected_vendor_product_id: B00ENZT4M8
+      - vendor_id: myntra
+        name: Myntra
+        url: https://www.myntra.com/day-cream/olay/olay-total-effects-day-cream-with-spf15---fights-7-signs-of-ageing---50g/13509836/buy
+        adapter: myntra
+        expected_vendor_product_id: "13509836"
+      - vendor_id: nykaa-man
+        name: Nykaa Man
+        url: https://www.nykaaman.com/olay-total-effects-7-in-one-anti-ageing-cream-normal-day-spf-15-50gm-261613/p/261613?skuId=261613
+        adapter: nykaa
+        expected_vendor_product_id: "261613"
+
+  # Replaced on 2026-10-16 (source history had a 777-day gap). Disabled, not deleted: its data stays in Supabase.
+  - product_id: boj-sunscreen-50ml
+    name: "Beauty of Joseon Relief Sun SPF 50 PA++++ (Rice + Probiotics), 50 ml"
+    brand: Beauty Of Joseon
+    category: beauty
+    currency: INR
+    enabled: false
+    price_source:
+      url: https://pricehistory.app/p/beauty-joseon-sunscreen-spf-50-pa-sun-qXOOmq2h
+      adapter: pricehistory_app
+      enabled: false
+      adapter_config: {respect_robots_for_subrequests: false, wait_seconds: 6}
+    vendors: []
+
+  # PRODUCT 2 - waiting for URLs
+  # - product_id: product-002
+  #   name: "<name>"
+  #   category: electronics
+  #   price_source:
+  #     url: <PRICE_HISTORY_URL_2>
+  #     adapter: auto
+  #   vendors:
+  #     - {vendor_id: <vendor-a>, name: "<Vendor A>", url: <VENDOR_A_URL>}
+
+  # PRODUCT 3 - waiting for URLs

@@ -1,0 +1,30 @@
+# Fully documented example of the product registry format (values are placeholders, not real URLs).
+products:
+  - product_id: product-001            # 3-64 chars: a-z 0-9 _ -
+    name: "Example Laptop 14\" 16GB/512GB"
+    brand: ExampleBrand
+    model: EX-14-2026
+    category: electronics              # used to match category-specific sale events
+    currency: INR
+    description: optional free text
+    enabled: true                      # false = keep data but stop collecting
+    expected_attributes: {ram: 16GB, storage: 512GB}
+    price_source:                      # ONE recurring price-history source, collected on a schedule
+      url: https://price-tracker.example/p/example-laptop
+      adapter: auto                    # auto | pricehistory_app | generic_jsonld | chart_page
+      name: Example tracker
+      collection_interval_minutes: 360 # >= 30; default 6 h
+      enabled: true
+      adapter_config:                  # adapter-specific options
+        series_map: {"/ Price$": selling_price}   # chart_page: regex on "chart / series" -> price type
+        click_ranges: ["All"]          # optional range buttons to click before reading the chart
+        respect_robots_for_subrequests: true
+    vendors:                           # fetched ONLY when a user asks for EMI / vendor / review analysis
+      - vendor_id: vendor-a
+        name: Vendor A
+        url: https://vendor-a.example/product/123
+        adapter: vendor_generic
+        expected_vendor_product_id: "123"
+      - vendor_id: vendor-b
+        name: Vendor B
+        url: https://vendor-b.example/item/abc

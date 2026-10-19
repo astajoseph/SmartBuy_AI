@@ -1,0 +1,48 @@
+# Indian sale-event registry. Sync with: python scripts/register_products.py --events
+#
+# verification_status:
+#   confirmed_official       announced by the retailer itself (source_url required)
+#   reported_by_media        dates reported by news/deal sites, not by the retailer (source_url required)
+#   observed_on_source_chart past window drawn on a price-history chart (added automatically by the collector)
+#   calendar_date            fixed festival / holiday date
+#   recurring_unconfirmed    happens most years; next dates NOT known (no dates allowed)
+#   hypothetical             a window inferred from past patterns
+# Never mark an event confirmed without a source. Leave end_date empty if it was not announced.
+
+events:
+  # --- dated retailer sales (verified 2026-10-16 from the listed sources) ---
+  - event_name: Big Billion Days
+    retailer: flipkart
+    event_type: retailer_sale
+    start_date: 2026-10-09
+    source_url: https://www.91mobiles.com/hub/flipkart-big-billion-days-sale-2026-date-offers-revealed/
+    verification_status: reported_by_media
+    notes: Early access for Plus/Black/Flipkart credit card holders on 2026-10-08. End date not confirmed.
+  - event_name: Big Billion Days
+    retailer: flipkart
+    event_type: retailer_sale
+    start_date: 2025-09-23
+    source_url: https://www.digit.in/news/general/flipkart-big-billion-days-sale-2025-dates-officially-announced-timings-deals-and-more-you-should-expect.html
+    verification_status: reported_by_media
+    notes: Start per Flipkart teaser as reported by Digit; end date not confirmed in that report.
+  - event_name: Great Indian Festival
+    retailer: amazon
+    event_type: retailer_sale
+    start_date: 2024-09-27
+    source_url: https://www.aboutamazon.in/news/retail/amazon-great-indian-festival-2024-date
+    verification_status: confirmed_official
+    notes: Prime early access from 2024-09-26. End date not taken from this source.
+
+  # --- recurring events without confirmed next dates ---
+  - {event_name: Republic Day Sale, event_type: retailer_sale, verification_status: recurring_unconfirmed, typical_months: [1]}
+  - {event_name: Holi Sale, event_type: festival, verification_status: recurring_unconfirmed, typical_months: [3]}
+  - {event_name: Summer Sale, event_type: season_sale, verification_status: recurring_unconfirmed, typical_months: [5, 6]}
+  - {event_name: Independence Day Sale, event_type: retailer_sale, verification_status: recurring_unconfirmed, typical_months: [8]}
+  - {event_name: Great Indian Festival, retailer: amazon, event_type: retailer_sale, verification_status: recurring_unconfirmed, typical_months: [9, 10]}
+  - {event_name: Big Billion Days, retailer: flipkart, event_type: retailer_sale, verification_status: recurring_unconfirmed, typical_months: [9, 10]}
+  - {event_name: Dussehra Offers, event_type: festival, verification_status: recurring_unconfirmed, typical_months: [9, 10]}
+  - {event_name: Dhanteras Offers, event_type: festival, verification_status: recurring_unconfirmed, typical_months: [10, 11]}
+  - {event_name: Diwali Sale, event_type: festival, verification_status: recurring_unconfirmed, typical_months: [10, 11]}
+  - {event_name: Black Friday / Cyber Monday, event_type: shopping_day, verification_status: recurring_unconfirmed, typical_months: [11]}
+  - {event_name: Christmas & Year-End Sale, event_type: season_sale, verification_status: recurring_unconfirmed, typical_months: [12]}
+  - {event_name: End of Season Sale, event_type: season_sale, category: fashion, verification_status: recurring_unconfirmed, typical_months: [1, 6, 7]}

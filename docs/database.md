@@ -1,0 +1,67 @@
+# Database (Supabase PostgreSQL, schema `smartbuy`)
+
+Migrations: `supabase/migrations/*.sql`, applied by `scripts/migrate.py` (records versions in
+`smartbuy.schema_migrations`) or by `supabase db push`.
+
+## Timestamp semantics
+
+| Column | Meaning |
+|---|---|
+| `historical_price_points.historical_timestamp` | when the price was valid according to the source's history (date-only values = 00:00 IST of that date) |
+| `price_observations.observed_at` | when **our collector** saw the price on the price-history source |
+| `vendor_snapshots / emi_offers / vendor_reviews.fetched_at` | when vendor information was retrieved |
+| `*.expires_at` | end of the cache window for that vendor data |
+| `emi_offers.offer_valid_until` | validity stated by the vendor (checked independently of the cache) |
+
+All are `timestamptz` (UTC). Money is `numeric(12,2)` with `CHECK (price > 0)`; currency is `char(3)`.
+
+## Tables
+
+| Table | Purpose / key constraints |
+|---|---|
+| `products` | catalogue; `id` slug |
+| `vendors` | vendor names + domain |
+| `product_sources` | recurring sources (`price_history`); interval, adapter, `adapter_config`, health fields; unique `(product_id, source_url)` |
+| `product_vendor_sources` | vendor URLs per product (on-demand only); unique `(product_id, vendor_id, source_url)` |
+| `source_extraction_tests` | results of URL inspections (fields found / missing) |
+| `price_observations` | our observations; unique `(source_id, price_type, observed_at)` |
+| `historical_price_points` | source history; unique `(product_id, source_id, price_type, historical_timestamp)`; `data_origin` = `source_chart_data` / `imported_dashboard_ts` / `imported_csv`; `confidence_or_quality` = `source_reported` / `estimated_from_chart` |
+| `source_price_stats` | lowest / average / highest / MRP / lowest_offer as stated by the source |
+| `sale_events` | event registry with `verification_status` (`confirmed_official`, `reported_by_media`, `observed_on_source_chart`, `calendar_date`, `recurring_unconfirmed`, `hypothetical`) |
+| `vendor_snapshots` | one row per vendor fetch (ok / partial / failed / blocked) incl. per-kind expiry map |
+| `emi_offers` | parsed EMI terms + calculated totals, assumptions, raw text, verification status |
+| `vendor_reviews` | aggregates and individual reviews, product vs seller (`review_kind`), sentiment, aspects |
+| `forecasts` | method, point, interval, probability, validation metrics, limitations, base price/time |
+| `prediction_outcomes` | actual vs forecast once the horizon has passed |
+| `purchase_recommendations` | every recommendation with reasons, risks, request, linked forecast / EMI offers |
+| `collection_jobs` | every scheduled/manual/vendor/test job with counts, retries, errors, extraction report |
+| `user_targets` | per-user target price / budget (RLS: owner only) |
+| `notifications` | in-app alerts with category and dedupe key (RLS: owner or broadcast) |
+
+`price_type` distinguishes `selling_price`, `offer_price` (after bank/coupon offers) and `mrp`.
+
+## Views
+
+* `v_price_points` — every recorded price (history + observations) with `point_kind`.
+* `v_daily_price` — one row per IST day per product and price type, carrying the last recorded price
+  forward; `is_recorded` and `days_since_recorded` flag assumed rows. Exported by `scripts/export_daily.py`.
+  (Analysis code additionally treats > 30 days since a record as unknown.)
+
+## Row Level Security
+
+RLS is enabled on every table. The backend connects as a privileged role (bypasses RLS) and filters
+user rows by the verified JWT subject itself. Policies (created only when Supabase's `auth` schema
+exists): `user_targets` — owner full access; `notifications` — owner or broadcast read, owner update.
+With no other policies, the anon/authenticated API roles cannot read application tables if the schema
+is ever exposed through PostgREST.
+
+## Retention
+
+Nothing is deleted automatically. Suggested policy (not yet scheduled): keep all price data; prune
+`vendor_snapshots`, `emi_offers` and `vendor_reviews` older than 90 days, and `collection_jobs.details`
+older than 30 days.
+
+## Relationship to `dashboard_ts`
+
+`dashboard_ts` belongs to `data/extract_dashboard_timeseries.py` and is only read by
+`scripts/import_legacy.py dashboard-ts`. SmartBuy never writes to it.

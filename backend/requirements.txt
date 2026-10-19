@@ -1,0 +1,16 @@
+# Runtime (pinned to versions verified in development, 2026-10)
+fastapi==0.118.0
+uvicorn[standard]==0.37.0
+pydantic==2.11.9
+pydantic-settings==2.11.0
+psycopg[binary,pool]==3.2.10
+httpx==0.28.1
+beautifulsoup4==4.13.5
+lxml==6.0.2
+pyyaml==6.0.3
+pandas==2.3.3
+numpy==2.3.3
+scipy==1.16.2
+google-genai==1.41.0
+pyjwt==2.10.1
+playwright==1.64.0

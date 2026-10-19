@@ -1,0 +1,50 @@
+# Scheduled price-history collection for SmartBuy AI (runs in GitHub's cloud, not on your laptop).
+# Collects ONLY price-history sources; vendor pages are never fetched here (on-demand only).
+# Required repository secret: SMARTBUY_DATABASE_URL (Supabase session-pooler URI).
+# GitHub cron is best-effort: runs can start late or be skipped under load, and scheduled workflows
+# are disabled after 60 days without repository activity. See docs/deployment.md.
+name: smartbuy-collect
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"     # every 3 hours (off the hour to avoid peak scheduling delays)
+  workflow_dispatch:
+    inputs:
+      product:
+        description: "Optional product_id to collect now even if not due (e.g. olay-total-effects-50g)"
+        required: false
+        default: ""
+
+concurrency:
+  group: smartbuy-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Collect due price-history sources
+        if: ${{ github.event_name == 'schedule' || inputs.product == '' }}
+        env:
+          DATABASE_URL: ${{ secrets.SMARTBUY_DATABASE_URL }}
+          LLM_PROVIDER: none
+        run: python -m app.workers.scheduler --once --grace-minutes 30
+      - name: Collect one product now (manual run)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.product != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.SMARTBUY_DATABASE_URL }}
+          LLM_PROVIDER: none
+          PRODUCT_ID: ${{ inputs.product }}
+        run: python ../scripts/run_collection.py --product "$PRODUCT_ID"

@@ -1,0 +1,206 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1960px; height: 1260px; background: #ffffff; font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #0f172a; position: relative; }
+  .abs { position: absolute; }
+  .title { left: 40px; top: 28px; font-size: 30px; font-weight: 700; letter-spacing: -0.3px; }
+  .subtitle { left: 40px; top: 70px; font-size: 15px; color: #475569; }
+  .container { border-radius: 16px; border: 2px solid; padding: 10px 14px; }
+  .ctitle { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+  .box { border-radius: 10px; border: 1.5px solid; padding: 9px 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
+  .bt { font-size: 15.5px; font-weight: 700; margin-bottom: 4px; }
+  .bd { font-size: 12.5px; line-height: 1.38; color: #334155; }
+  .tag { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: 2px; }
+  /* palette */
+  .user   { border-color: #94a3b8; background: #f8fafc; }
+  .fe     { border-color: #3b82f6; background: #eff6ff; }
+  .fe .box{ border-color: #93c5fd; }
+  .api    { border-color: #6366f1; background: #eef2ff; }
+  .api .box { border-color: #a5b4fc; }
+  .gh     { border-color: #16a34a; background: #f0fdf4; }
+  .gh .box{ border-color: #86efac; }
+  .ext    { border-color: #ea580c; background: #fff7ed; }
+  .ext .box{ border-color: #fdba74; }
+  .db     { border-color: #0d9488; background: #f0fdfa; }
+  .db .box{ border-color: #5eead4; }
+  .cfg    { border-color: #a16207; background: #fefce8; }
+  .sec    { border-color: #475569; background: #f1f5f9; }
+  .lbl { font-size: 12.5px; font-weight: 600; fill: #0f172a; }
+  .lblbg { fill: #ffffff; }
+  .legend { left: 40px; top: 1168px; width: 1880px; height: 62px; border: 1px solid #e2e8f0; border-radius: 12px; display: flex; align-items: center; gap: 34px; padding: 0 20px; font-size: 13px; color: #334155; }
+  .legend svg { vertical-align: middle; margin-right: 6px; }
+</style></head>
+<body>
+<div class="abs title">SmartBuy AI — System Architecture</div>
+<div class="abs subtitle">Indian-market purchase intelligence · price history every 3 h in the cloud · vendor pages only on demand · deterministic decisions, Gemini explains</div>
+
+<!-- USER -->
+<div class="abs container user" style="left:40px; top:140px; width:290px; height:120px;">
+  <div class="ctitle" style="color:#475569">User</div>
+  <div class="bd" style="margin-top:6px">Web browser (desktop / mobile)<br>Asks: buy now or wait? which vendor? EMI? reviews?</div>
+</div>
+
+<!-- FRONTEND -->
+<div class="abs container fe" style="left:40px; top:320px; width:290px; height:480px;">
+  <div class="ctitle" style="color:#1d4ed8">Frontend</div>
+  <div class="bd" style="margin:2px 0 8px">Next.js 15 · TypeScript · Tailwind · Recharts</div>
+  <div class="box" style="margin-bottom:8px"><div class="bt">Pages</div><div class="bd">Dashboard · Product detail &amp; price chart · Purchase advisor + chat · Vendors &amp; EMI · Reviews · Sale intelligence · Settings · Admin</div></div>
+  <div class="box" style="margin-bottom:8px"><div class="bt">Data labels</div><div class="bd">Every figure tagged Observed · Source-stated · Estimate · Forecast · Unknown · Vendor page</div></div>
+  <div class="box"><div class="bt">No secrets</div><div class="bd">Only the public API URL; preferences in browser storage; admin token typed per session</div></div>
+</div>
+
+<!-- BACKEND API -->
+<div class="abs container api" style="left:400px; top:140px; width:780px; height:660px;">
+  <div class="ctitle" style="color:#4338ca">Backend API — FastAPI · Python 3.12</div>
+</div>
+<!-- col 1 -->
+<div class="abs box" style="left:422px; top:186px; width:362px; height:105px; border-color:#a5b4fc">
+  <div class="bt">API routers <span class="tag" style="background:#e0e7ff;color:#3730a3">/docs</span></div>
+  <div class="bd">products · prices · history · forecast · seasonality · vendor-comparison · reviews · recommendations · assistant/chat · events · admin</div></div>
+<div class="abs box" style="left:422px; top:311px; width:362px; height:105px; border-color:#a5b4fc">
+  <div class="bt">Price statistics</div>
+  <div class="bd">History stats, period changes, percentile of today's price, data-quality flags; gaps &gt; 30 days treated as unknown</div></div>
+<div class="abs box" style="left:422px; top:436px; width:362px; height:105px; border-color:#a5b4fc">
+  <div class="bt">Forecasting &amp; seasonality</div>
+  <div class="bd">Baselines chosen by chronological backtest, 80 % intervals, target probability (Brier-checked), Indian sale-event windows, weekday/month tests</div></div>
+<div class="abs box" style="left:422px; top:561px; width:362px; height:105px; border-color:#a5b4fc">
+  <div class="bt">Review analysis</div>
+  <div class="bd">Aspect sentiment (texture, skin reaction, value, delivery …), product vs seller reviews kept separate, small-sample warnings</div></div>
+<!-- col 2 -->
+<div class="abs box" style="left:798px; top:186px; width:362px; height:105px; border-color:#a5b4fc">
+  <div class="bt">Recommendation engine</div>
+  <div class="bd">Deterministic, unit-tested policy → BUY_NOW · WAIT · MONITOR · BUY_IF_TARGET_REACHED · COMPARE_VENDORS · INSUFFICIENT_DATA</div></div>
+<div class="abs box" style="left:798px; top:311px; width:362px; height:105px; border-color:#a5b4fc">
+  <div class="bt">Finance</div>
+  <div class="bd">EMI (reducing / flat / zero-interest), fees + GST, No-Cost-EMI check, bank &amp; cashback offer value, ranking by objective</div></div>
+<div class="abs box" style="left:798px; top:436px; width:362px; height:105px; border-color:#fdba74; background:#fffbeb">
+  <div class="bt">Vendor service <span class="tag" style="background:#ffedd5;color:#9a3412">on demand</span></div>
+  <div class="bd">Cache first (price 1 h · EMI/offers 12 h · reviews 24 h–7 d); adapters amazon_in · myntra · nykaa · generic; blocked pages never bypassed</div></div>
+<div class="abs box" style="left:798px; top:561px; width:362px; height:105px; border-color:#d8b4fe; background:#faf5ff">
+  <div class="bt">LLM assistant</div>
+  <div class="bd">Rule-based intent → engine → evidence; untrusted web text fenced; ₹ numeric guard; template fallback; read-only</div></div>
+<!-- security bar -->
+<div class="abs container sec" style="left:422px; top:690px; width:738px; height:90px; border-width:1.5px; border-radius:10px">
+  <div class="bt" style="font-size:14px">Security layer</div>
+  <div class="bd">SSRF-safe fetcher (allow-list, public-IP DNS check, IP pinning, redirect re-check, size/time limits) · robots.txt · per-domain &amp; per-client rate limits · admin token · Supabase JWT · log secret redaction</div>
+</div>
+
+<!-- GITHUB -->
+<div class="abs container gh" style="left:1250px; top:140px; width:610px; height:170px;">
+  <div class="ctitle" style="color:#15803d">GitHub Actions · cloud</div>
+</div>
+<div class="abs box" style="left:1268px; top:180px; width:350px; height:116px; border-color:#86efac">
+  <div class="bt">smartbuy-collect <span class="tag" style="background:#dcfce7;color:#166534">every 3 h</span></div>
+  <div class="bd">cron 17 */3 * * * · scheduler --once<br>Collector worker + headless Chromium (Playwright); advisory locks, retries, job log; then forecasts &amp; alerts</div></div>
+<div class="abs box" style="left:1634px; top:180px; width:210px; height:116px; border-color:#86efac">
+  <div class="bt">smartbuy-tests</div>
+  <div class="bd">CI on every push: 150 backend tests (Postgres service) + frontend build</div></div>
+
+<!-- EXTERNAL -->
+<div class="abs container ext" style="left:1250px; top:330px; width:610px; height:470px;">
+  <div class="ctitle" style="color:#c2410c">External sources &amp; services</div>
+</div>
+<div class="abs box" style="left:1268px; top:366px; width:350px; height:72px; border-color:#86efac; background:#f0fdf4">
+  <div class="bt">pricehistory.app <span class="tag" style="background:#dcfce7;color:#166534">price history</span></div>
+  <div class="bd">Product page: JSON-LD (price, MRP, stats) + Chart.js history &amp; sale bands</div></div>
+<div class="abs box" style="left:1268px; top:452px; width:574px; height:80px; border-color:#fdba74">
+  <div class="bt">Vendor sites <span class="tag" style="background:#ffedd5;color:#9a3412">only when a user asks</span></div>
+  <div class="bd">Amazon.in (/dp/ASIN) · Myntra (window.__myx JSON) · Nykaa Man (__PRELOADED_STATE__ JSON) → price, MRP, EMI status, bank offers, ratings, reviews, returns</div></div>
+<div class="abs box" style="left:1268px; top:577px; width:574px; height:80px; border-color:#d8b4fe; background:#faf5ff">
+  <div class="bt">Google Gemini 2.5 Flash <span class="tag" style="background:#f3e8ff;color:#6b21a8">explains only</span></div>
+  <div class="bd">Receives structured evidence, writes the explanation; cannot change the action or numbers (provider swappable: LLM_PROVIDER=gemini | none)</div></div>
+<div class="abs box" style="left:1268px; top:690px; width:574px; height:92px; border-color:#cbd5e1; background:#f8fafc">
+  <div class="bt">Legacy data</div>
+  <div class="bd">data/extract_dashboard_timeseries.py → schema <b>dashboard_ts</b> (same Supabase project); chart-reading code reused unchanged; imported read-only via scripts/import_legacy.py</div></div>
+
+<!-- CONFIG -->
+<div class="abs container cfg" style="left:40px; top:850px; width:290px; height:280px;">
+  <div class="ctitle" style="color:#a16207">Configuration &amp; secrets</div>
+  <div class="bd" style="margin-top:8px; line-height:1.55">
+    <b>config/products.yaml</b> — products, price-history URL, vendor URLs, intervals<br>
+    <b>config/sale_events.yaml</b> — Indian sale events + verification status<br>
+    <b>.env</b> (git-ignored) — DATABASE_URL, GEMINI_API_KEY, ADMIN_API_TOKEN<br>
+    <b>GitHub secret</b> — SMARTBUY_DATABASE_URL<br>
+    <b>supabase/migrations</b> — schema SQL
+  </div>
+</div>
+
+<!-- SUPABASE -->
+<div class="abs container db" style="left:400px; top:850px; width:1460px; height:280px;">
+  <div class="ctitle" style="color:#0f766e">Supabase PostgreSQL — schema "smartbuy" · Row Level Security · idempotent writes</div>
+</div>
+<div class="abs box" style="left:420px; top:892px; width:270px; height:220px; border-color:#5eead4">
+  <div class="bt">Registry</div><div class="bd">products<br>product_sources (price history)<br>vendors<br>product_vendor_sources<br>source_extraction_tests</div></div>
+<div class="abs box" style="left:706px; top:892px; width:270px; height:220px; border-color:#5eead4">
+  <div class="bt">Prices</div><div class="bd">historical_price_points (source dates)<br>price_observations (our checks)<br>source_price_stats<br>views: v_price_points, v_daily_price (recorded / carried forward)</div></div>
+<div class="abs box" style="left:992px; top:892px; width:270px; height:220px; border-color:#fdba74">
+  <div class="bt">Vendor cache</div><div class="bd">vendor_snapshots (EMI status)<br>emi_offers<br>vendor_bank_offers<br>vendor_reviews<br><i>fetched_at · expires_at</i></div></div>
+<div class="abs box" style="left:1278px; top:892px; width:270px; height:220px; border-color:#5eead4">
+  <div class="bt">Analytics</div><div class="bd">forecasts<br>prediction_outcomes<br>purchase_recommendations<br>sale_events</div></div>
+<div class="abs box" style="left:1564px; top:892px; width:280px; height:220px; border-color:#5eead4">
+  <div class="bt">Operations &amp; users</div><div class="bd">collection_jobs (job log)<br>notifications (dedupe + cooldown)<br>user_targets (owner-only RLS)<br>schema_migrations</div></div>
+
+<!-- ARROWS -->
+<svg class="abs" style="left:0; top:0" width="1960" height="1260">
+  <defs>
+    <marker id="a-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#334155"/></marker>
+    <marker id="a-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+    <marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ea580c"/></marker>
+    <marker id="a-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9333ea"/></marker>
+    <marker id="a-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0d9488"/></marker>
+    <marker id="a-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a16207"/></marker>
+  </defs>
+
+  <!-- user <-> frontend -->
+  <line x1="185" y1="262" x2="185" y2="316" stroke="#334155" stroke-width="2.5" marker-start="url(#a-dark)" marker-end="url(#a-dark)"/>
+  <rect x="194" y="279" width="68" height="20" rx="4" class="lblbg"/><text x="198" y="294" class="lbl">HTTPS</text>
+
+  <!-- frontend <-> API -->
+  <line x1="332" y1="470" x2="396" y2="470" stroke="#334155" stroke-width="2.5" marker-start="url(#a-dark)" marker-end="url(#a-dark)"/>
+  <rect x="336" y="426" width="58" height="34" rx="4" class="lblbg"/><text x="340" y="440" class="lbl">REST</text><text x="340" y="455" class="lbl">JSON</text>
+
+  <!-- API <-> Supabase -->
+  <line x1="790" y1="802" x2="790" y2="846" stroke="#0d9488" stroke-width="2.5" marker-start="url(#a-teal)" marker-end="url(#a-teal)"/>
+  <rect x="800" y="812" width="230" height="22" rx="4" class="lblbg"/><text x="805" y="828" class="lbl" style="fill:#0f766e">SQL · psycopg pool (autocommit)</text>
+
+  <!-- vendor service -> vendor sites (dashed, on demand) -->
+  <line x1="1162" y1="490" x2="1264" y2="490" stroke="#ea580c" stroke-width="2.5" stroke-dasharray="8 6" marker-end="url(#a-orange)"/>
+  <rect x="1168" y="458" width="92" height="30" rx="4" class="lblbg"/><text x="1172" y="471" class="lbl" style="fill:#c2410c;font-size:11.5px">on demand,</text><text x="1172" y="484" class="lbl" style="fill:#c2410c;font-size:11.5px">cache first</text>
+
+  <!-- LLM -> Gemini -->
+  <line x1="1162" y1="616" x2="1264" y2="616" stroke="#9333ea" stroke-width="2.5" marker-start="url(#a-purple)" marker-end="url(#a-purple)"/>
+  <rect x="1168" y="584" width="92" height="30" rx="4" class="lblbg"/><text x="1172" y="597" class="lbl" style="fill:#7e22ce;font-size:11.5px">evidence →</text><text x="1172" y="610" class="lbl" style="fill:#7e22ce;font-size:11.5px">explanation</text>
+
+  <!-- collector -> pricehistory -->
+  <line x1="1598" y1="298" x2="1598" y2="362" stroke="#16a34a" stroke-width="2.5" marker-end="url(#a-green)"/>
+  <rect x="1630" y="382" width="200" height="38" rx="4" fill="#fff7ed"/><text x="1634" y="397" class="lbl" style="fill:#15803d">↖ collector renders the page</text><text x="1634" y="413" class="lbl" style="fill:#15803d">and reads the chart data</text>
+
+  <!-- collector -> Supabase (route along right margin) -->
+  <path d="M1560 178 L1560 122 L1915 122 L1915 990 L1864 990" fill="none" stroke="#16a34a" stroke-width="2.5" marker-end="url(#a-green)"/>
+  <rect x="1868" y="600" width="80" height="84" rx="4" class="lblbg"/>
+  <text x="1872" y="616" class="lbl" style="fill:#15803d;font-size:11.5px">upsert</text>
+  <text x="1872" y="630" class="lbl" style="fill:#15803d;font-size:11.5px">history,</text>
+  <text x="1872" y="644" class="lbl" style="fill:#15803d;font-size:11.5px">prices,</text>
+  <text x="1872" y="658" class="lbl" style="fill:#15803d;font-size:11.5px">stats,</text>
+  <text x="1872" y="672" class="lbl" style="fill:#15803d;font-size:11.5px">sale bands</text>
+
+  <!-- config -> Supabase -->
+  <line x1="332" y1="1000" x2="396" y2="1000" stroke="#a16207" stroke-width="2.5" marker-end="url(#a-yellow)"/>
+  <rect x="334" y="966" width="62" height="32" rx="4" class="lblbg"/><text x="336" y="979" class="lbl" style="fill:#a16207;font-size:11px">migrate</text><text x="336" y="993" class="lbl" style="fill:#a16207;font-size:11px">register</text>
+
+  <!-- legacy -> Supabase (import) -->
+  <line x1="1555" y1="784" x2="1555" y2="846" stroke="#64748b" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#a-dark)"/>
+  <rect x="1564" y="804" width="150" height="20" rx="4" class="lblbg"/><text x="1568" y="819" class="lbl" style="fill:#475569">one-off import</text>
+</svg>
+
+<!-- LEGEND -->
+<div class="abs legend">
+  <span><svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#334155" stroke-width="2.5"/></svg>Request / response</span>
+  <span><svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#16a34a" stroke-width="2.5"/></svg>Scheduled collection (every 3 h, cloud)</span>
+  <span><svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#ea580c" stroke-width="2.5" stroke-dasharray="8 6"/></svg>On-demand vendor fetch (cache first)</span>
+  <span><svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#9333ea" stroke-width="2.5"/></svg>LLM explanation only</span>
+  <span><svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#0d9488" stroke-width="2.5"/></svg>Database access</span>
+  <span style="margin-left:auto;color:#64748b">github.com/astajoseph/SmartBuy_AI</span>
+</div>
+</body></html>
