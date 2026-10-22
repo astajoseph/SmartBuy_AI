@@ -122,3 +122,24 @@ export interface ReviewBlock {
   excerpts?: { text: string; rating: number | null; date: string | null }[]; limitations: string[]; method: string;
 }
 export interface VendorReviews { vendor: string; product: ReviewBlock | null; seller: ReviewBlock | null; status: string; freshness: Freshness | null; message: string | null }
+
+// ---------------------------------------------------------------- accounts & history
+export interface Profile {
+  user_id: string; email: string | null; display_name: string | null; role: "user" | "admin";
+  is_disabled: boolean; created_at: string; last_seen_at: string;
+}
+export type ActivityKind = "sign_in" | "assistant_chat" | "recommendation" | "notifications_viewed" | "target_saved" | "admin_action";
+export interface Activity {
+  id: number; user_id: string; kind: ActivityKind; product_id: string | null; summary: string;
+  payload: Record<string, unknown>; created_at: string; email?: string | null; display_name?: string | null;
+}
+export interface ChatSession {
+  id: string; user_id: string; title: string; product_id: string | null; created_at: string; updated_at: string;
+  questions?: number; last_question?: string | null;
+}
+export interface ChatMessageRow {
+  id: number; request_id: string; role: "user" | "assistant"; content: string;
+  status: "pending" | "complete" | "failed"; meta: { llm_used?: boolean; vendor_data_accessed?: boolean; recommendation?: Recommendation; error?: string };
+  created_at: string;
+}
+export interface UserTarget { product_id: string; target_price: string | null; max_budget: string | null; alerts_enabled: boolean }

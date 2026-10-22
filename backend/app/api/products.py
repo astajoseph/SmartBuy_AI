@@ -107,4 +107,8 @@ class TargetIn(BaseModel):
 def set_target(product_id: str, body: TargetIn, user: CurrentUser = Depends(require_user),
                repo: Repository = Depends(get_repo)) -> dict:
     _product_or_404(repo, product_id)
-    return repo.upsert_target(user.id, product_id, body.target_price, body.max_budget, body.alerts_enabled)
+    row = repo.upsert_target(user.id, product_id, body.target_price, body.max_budget, body.alerts_enabled)
+    summary = f"Saved price alert for {product_id}" + (f" at ₹{body.target_price}" if body.target_price else "")
+    repo.log_activity(user.id, "target_saved", summary + ("" if body.alerts_enabled else " (alerts off)"),
+                      product_id=product_id, payload=body.model_dump(mode="json"))
+    return row

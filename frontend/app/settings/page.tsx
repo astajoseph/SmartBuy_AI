@@ -1,24 +1,53 @@
 "use client";
 import { useEffect, useState } from "react";
+import { RequireAuth } from "@/components/AuthProvider";
 import { Card, Notice } from "@/components/ui";
 import { useApi } from "@/hooks/useApi";
 import { usePrefs, type Prefs } from "@/hooks/usePrefs";
+import { api } from "@/lib/api";
 import { dateTime } from "@/lib/format";
-import type { ProductSummary } from "@/types/api";
+import type { ProductSummary, UserTarget } from "@/types/api";
 
 export default function SettingsPage() {
+  return <RequireAuth><Settings /></RequireAuth>;
+}
+
+function Settings() {
   const { prefs, save } = usePrefs();
   const [draft, setDraft] = useState<Prefs>(prefs);
   const [saved, setSaved] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const { data: serverTargets, reload: reloadTargets } = useApi<UserTarget[]>("/api/me/targets");
   const { data: products } = useApi<ProductSummary[]>("/api/products");
   const { data: notes } = useApi<{ id: number; kind: string; category: string; message: string; observed_at: string }[]>("/api/notifications");
-  useEffect(() => setDraft(prefs), [prefs]);
+  // Target prices saved on the account win over the ones remembered in this browser.
+  useEffect(() => {
+    const t = { ...prefs.targets };
+    for (const s of serverTargets ?? []) { if (s.target_price) t[s.product_id] = Number(s.target_price); else delete t[s.product_id]; }
+    setDraft({ ...prefs, targets: t });
+  }, [prefs, serverTargets]);
+
+  async function saveAll() {
+    setSaveErr(null);
+    save(draft);
+    const server = new Map((serverTargets ?? []).map((s) => [s.product_id, s.target_price ? Number(s.target_price) : undefined]));
+    const ids = new Set([...Object.keys(draft.targets), ...server.keys()]);
+    try {
+      for (const id of ids) {
+        const want = draft.targets[id];
+        if (want === server.get(id)) continue;
+        await api(`/api/products/${id}/target-price`, { method: "POST", body: JSON.stringify({ target_price: want ?? null, alerts_enabled: draft.alerts.targetReached }) });
+      }
+      reloadTargets();
+      setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch (e) { setSaveErr(`Saved in this browser, but not on your account: ${(e as Error).message}`); }
+  }
   const n = (s: string) => (s.trim() ? Number(s) : undefined);
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-slate-600">Stored in this browser only. Signed-in accounts (Supabase Auth) can also save targets on the server.</p>
+        <p className="text-sm text-slate-600">Target prices are saved to your account (alerts and history); budget and bank preferences stay in this browser.</p>
       </div>
       <Card title="Budget & financing">
         <div className="grid gap-3 md:grid-cols-4">
@@ -51,7 +80,8 @@ export default function SettingsPage() {
         ))}
         <p className="mt-2 text-xs text-slate-500">Alerts are shown in the app. E-mail/SMS delivery is not configured.</p>
       </Card>
-      <div className="flex items-center gap-3"><button className="btn-primary" onClick={() => { save(draft); setSaved(true); setTimeout(() => setSaved(false), 2000); }}>Save settings</button>{saved && <span className="text-sm text-emerald-700">Saved</span>}</div>
+      <div className="flex items-center gap-3"><button className="btn-primary" onClick={() => void saveAll()}>Save settings</button>{saved && <span className="text-sm text-emerald-700">Saved</span>}</div>
+      {saveErr && <Notice tone="error">{saveErr}</Notice>}
       <Card title="Recent notifications">
         {!notes?.length ? <p className="text-sm text-slate-500">No notifications yet.</p> : (
           <ul className="space-y-2 text-sm">{notes.filter((x) => (x.kind === "target_reached" ? draft.alerts.targetReached : x.kind === "price_drop" ? draft.alerts.priceDrop : x.kind === "sale_upcoming" ? draft.alerts.sales : true))

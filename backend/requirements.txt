@@ -13,4 +13,5 @@ numpy==2.3.3
 scipy==1.16.2
 google-genai==1.41.0
 pyjwt==2.10.1
+cryptography==50.0.2          # PyJWT needs it to verify Supabase ES256/RS256 sign-in tokens
 playwright==1.64.0

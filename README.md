@@ -51,7 +51,7 @@ User question ─► assistant ─► recommendation engine ─► needs EMI/ven
 
 ## 2. Progress tracker
 
-_Last updated: 2026-10-20._
+_Last updated: 2026-10-23._
 
 ### Done
 
@@ -71,6 +71,8 @@ _Last updated: 2026-10-20._
 | 12 | 2026-10-17 | System architecture diagram (`docs/SmartBuy_AI_Architecture.png`) | rendered + visually checked |
 | 13 | 2026-10-19 | Repository cleanup: presentations and hand-out text files kept local only | `.gitignore` |
 | 14 | 2026-10-20 | Moved to its own repository `astajoseph/SmartBuy_AI` with its own workflows; removed from `AG_AI` | 150 tests pass locally |
+| 15 | 2026-10-22 | Scheduled collection restored on the new repository (secret `SMARTBUY_DATABASE_URL` set) | manual run: 7 records inserted |
+| 16 | 2026-10-23 | Sign-in (Supabase Auth, e-mail + password), admin console, per-user history, saved assistant conversations that resume after a dropped connection — see [`docs/accounts.md`](docs/accounts.md) | 158 tests, frontend build, migration applied to Supabase |
 
 ### Current status
 
@@ -80,20 +82,22 @@ _Last updated: 2026-10-20._
 | Former product: Beauty of Joseon sunscreen | Disabled (source history had a 777-day gap); data kept in Supabase |
 | Vendors for product 1 | Amazon.in and Myntra **working**; Nykaa Man blocked by its CDN ("Access Denied", not bypassed) |
 | EMI for product 1 | Not offered by any vendor for this ₹449–₹799 item; bank/cashback offers are evaluated instead |
-| Supabase | Schema `smartbuy` migrated; RLS enabled |
+| Supabase | Schema `smartbuy` migrated (incl. accounts / history tables); RLS enabled |
 | Gemini assistant | Working (gemini-2.5-flash) |
-| Backend tests | 150 passing (`backend/tests`) |
+| Backend tests | 158 passing (`backend/tests`) |
+| Accounts | Backend ready (ES256 sign-in keys verified); the frontend needs the public anon key in `SUPABASE_ANON_KEY` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
 | Frontend | Type-check and production build clean |
-| Scheduling | GitHub Actions `smartbuy-collect` every 3 hours — waiting for the repository secret after the move |
+| Scheduling | GitHub Actions `smartbuy-collect` every 3 hours — **running** (secret set 2026-10-22) |
 
 ### Pending / next
 
-- [ ] **Set the secret `SMARTBUY_DATABASE_URL` on this repository** (required for scheduled collection)
+- [x] Set the secret `SMARTBUY_DATABASE_URL` on this repository (done 2026-10-22)
+- [ ] Add the Supabase anon key to `.env` / `frontend/.env.local` and set the Auth Site URL + redirect URLs (see `docs/accounts.md`)
 - [ ] Rotate the Supabase password, then update `.env` and the GitHub secret `SMARTBUY_DATABASE_URL`
-- [ ] Set `ADMIN_API_TOKEN` to enable the Admin page
+- [x] Admin page: admin accounts via `ADMIN_EMAILS` (the `ADMIN_API_TOKEN` stays optional for scripts)
 - [ ] Products 2 and 3 (price-history URL + vendor URLs)
 - [ ] Optional: host API + web (same region as Supabase, Seoul)
-- [ ] Optional: Supabase Auth sign-in UI for saved target prices
+- [x] Supabase Auth sign-in UI, saved targets, history and conversations (2026-10-23)
 - [ ] Re-check Nykaa Man later (the block may lift on its own)
 
 Data notes for product 1: five records from 2016–17 at ₹5,500–5,723 (also the source's stated
@@ -106,7 +110,7 @@ compared with non-sale periods.
 
 ```bash
 git clone https://github.com/astajoseph/SmartBuy_AI.git && cd SmartBuy_AI
-cp .env.example .env            # fill DATABASE_URL, GEMINI_API_KEY, ADMIN_API_TOKEN
+cp .env.example .env            # fill DATABASE_URL, GEMINI_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_EMAILS
 
 # backend
 cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
@@ -119,7 +123,8 @@ cd backend && .venv/bin/uvicorn app.main:app --port 8001         # API docs: htt
 
 # frontend (new terminal)
 cd SmartBuy_AI/frontend && npm ci
-NEXT_PUBLIC_API_URL=http://localhost:8001 npm run dev -- -p 3100  # http://localhost:3100
+cp .env.example .env.local      # NEXT_PUBLIC_API_URL=http://localhost:8001 + the two NEXT_PUBLIC_SUPABASE_* values
+npm run dev -- -p 3100          # http://localhost:3100 (sign in at /login)
 ```
 
 Or everything in Docker: `docker compose up --build` (API on 8001, web on 3100, worker loop).
@@ -152,17 +157,17 @@ Useful scripts (`scripts/`):
 SmartBuy_AI/
 ├── .github/workflows/   smartbuy-collect (every 3 h) · smartbuy-tests (CI)
 ├── backend/app/
-│   ├── api/              FastAPI routers (products, prices, vendors, recommendations, assistant, events, admin)
+│   ├── api/              FastAPI routers (products, prices, vendors, recommendations, assistant, events, account, admin)
 │   ├── database/         psycopg pool + Repository (all SQL)
 │   ├── extraction/       adapters, JSON-LD parser, Playwright renderer, vendored chart detector, validation
 │   ├── finance/          EMI calculator, effective price, option ranking
 │   ├── forecasting/      baselines, chronological backtests, forecasts, seasonality
 │   ├── recommendations/  deterministic policy, engine, schemas
 │   ├── llm/              provider abstraction (Gemini / none), prompts, assistant
-│   ├── services/         price stats, vendor cache, EMI comparison, reviews, events, alerts, import, registry
-│   ├── security/         SSRF-safe fetcher, admin/user auth
+│   ├── services/         price stats, vendor cache, EMI comparison, reviews, events, alerts, chat sessions, import, registry
+│   ├── security/         SSRF-safe fetcher, Supabase sign-in verification, admin/user roles
 │   └── workers/          price collector + scheduler
-├── backend/tests/        150 tests (synthetic fixtures; DB tests use a disposable Postgres)
+├── backend/tests/        158 tests (synthetic fixtures; DB tests use a disposable Postgres)
 ├── frontend/             Next.js 15 + Tailwind + Recharts
 ├── config/               products.yaml, sale_events.yaml (+ documented examples)
 ├── supabase/migrations/  SQL schema + RLS
@@ -174,6 +179,7 @@ SmartBuy_AI/
 
 * [`docs/WORKLOG.md`](docs/WORKLOG.md) — chronological log of everything done (kept up to date)
 * [`docs/SmartBuy_AI_Architecture.png`](docs/SmartBuy_AI_Architecture.png) — system diagram (editable source: `SmartBuy_AI_Architecture.html`)
+* [`docs/accounts.md`](docs/accounts.md) — sign-in, admin console, user history, resumable assistant conversations
 * [`docs/architecture.md`](docs/architecture.md) — components, data flow, design decisions
 * [`docs/database.md`](docs/database.md) — tables, timestamps, constraints, views, RLS
 * [`docs/extraction.md`](docs/extraction.md) — adapters, pricehistory.app inspection notes, robots.txt decision, security

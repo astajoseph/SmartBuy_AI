@@ -1,9 +1,10 @@
-"""Administrative API. Every route requires `Authorization: Bearer <ADMIN_API_TOKEN>`."""
+"""Administrative API. Every route requires a signed-in admin account or `Authorization: Bearer <ADMIN_API_TOKEN>`."""
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
@@ -12,7 +13,8 @@ from app.dependencies import get_repo
 from app.extraction.base import ExtractionContext
 from app.extraction.browser import BrowserRenderer
 from app.extraction.registry import UnknownAdapter, resolve_adapter
-from app.security.permissions import require_admin
+from app.api.assistant import message_out
+from app.security.permissions import CurrentUser, require_admin
 from app.security.url_validation import FetchError, RobotsDisallowed, SafeFetcher, UnsafeURLError, validate_url_syntax
 from app.services import vendor_service
 from app.services.alert_service import evaluate_product_alerts
@@ -117,3 +119,88 @@ def cache_status(repo: Repository = Depends(get_repo)) -> list[dict]:
            from product_vendor_sources vs join vendors v on v.id = vs.vendor_id
            left join vendor_snapshots s on s.vendor_source_id = vs.id
            order by vs.id, s.fetched_at desc nulls last""")
+
+
+# ---------------------------------------------------------------- users, activity and conversations
+class RoleIn(BaseModel):
+    role: str = Field(pattern="^(user|admin)$")
+
+
+class DisabledIn(BaseModel):
+    disabled: bool
+
+
+def _profile_or_404(repo: Repository, user_id: UUID) -> dict:
+    p = repo.get_profile(user_id)
+    if not p:
+        raise HTTPException(404, "User not found")
+    return p
+
+
+def _audit(repo: Repository, admin: CurrentUser | None, summary: str, target: dict, **payload) -> None:
+    if admin:                                       # token-based calls have no account to record against
+        repo.log_activity(admin.id, "admin_action", summary,
+                          payload={"target_user_id": str(target["user_id"]), "target_email": target["email"], **payload})
+
+
+@router.get("/api/admin/whoami", summary="Who is calling: an admin account, or the static admin token")
+def whoami(admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    return {"via": "account" if admin else "token", "email": admin.email if admin else None}
+
+
+@router.get("/api/admin/stats", summary="Users, activity and assistant usage at a glance")
+def stats(repo: Repository = Depends(get_repo)) -> dict:
+    return repo.activity_stats()
+
+
+@router.get("/api/admin/users", summary="All accounts with chat / activity counts")
+def users(q: str | None = Query(None, max_length=100), limit: int = Query(200, ge=1, le=1000),
+          repo: Repository = Depends(get_repo)) -> list[dict]:
+    return repo.list_profiles(q or None, limit)
+
+
+@router.get("/api/admin/users/{user_id}", summary="One account with its targets and conversations")
+def user_detail(user_id: UUID, repo: Repository = Depends(get_repo)) -> dict:
+    return {**_profile_or_404(repo, user_id), "targets": repo.targets_for_user(user_id),
+            "sessions": repo.list_chat_sessions(user_id, 200)}
+
+
+@router.get("/api/admin/activity", summary="Activity of all users (or one), newest first")
+def activity(user_id: UUID | None = None, kind: str | None = None, before: int | None = None,
+             limit: int = Query(100, ge=1, le=500), repo: Repository = Depends(get_repo)) -> list[dict]:
+    return repo.list_activity(user_id, kind=kind, before_id=before, limit=limit)
+
+
+@router.get("/api/admin/chats/{session_id}", summary="Read any user's conversation")
+def chat_detail(session_id: UUID, repo: Repository = Depends(get_repo)) -> dict:
+    s = repo.get_chat_session(session_id)
+    if not s:
+        raise HTTPException(404, "Conversation not found")
+    return {**s, "owner": repo.get_profile(s["user_id"]), "messages": [message_out(m) for m in repo.chat_messages(session_id)]}
+
+
+@router.post("/api/admin/users/{user_id}/role", summary="Make an account an admin or a normal user")
+def set_role(user_id: UUID, body: RoleIn, repo: Repository = Depends(get_repo),
+             admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    target = _profile_or_404(repo, user_id)
+    if body.role != "admin" and target["role"] == "admin":
+        if admin and admin.id == user_id:
+            raise HTTPException(409, "You cannot remove your own admin role")
+        if repo.count_admins() <= 1:
+            raise HTTPException(409, "At least one active admin must remain")
+    row = repo.set_profile_role(user_id, body.role)
+    _audit(repo, admin, f"Set role of {target['email']} to {body.role}", target, role=body.role)
+    return row
+
+
+@router.post("/api/admin/users/{user_id}/disabled", summary="Disable (block) or re-enable an account")
+def set_disabled(user_id: UUID, body: DisabledIn, repo: Repository = Depends(get_repo),
+                 admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    target = _profile_or_404(repo, user_id)
+    if body.disabled and admin and admin.id == user_id:
+        raise HTTPException(409, "You cannot disable your own account")
+    if body.disabled and target["role"] == "admin" and not target["is_disabled"] and repo.count_admins() <= 1:
+        raise HTTPException(409, "At least one active admin must remain")
+    row = repo.set_profile_disabled(user_id, body.disabled)
+    _audit(repo, admin, f"{'Disabled' if body.disabled else 'Re-enabled'} {target['email']}", target, disabled=body.disabled)
+    return row

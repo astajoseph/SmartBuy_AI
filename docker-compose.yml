@@ -20,7 +20,8 @@ services:
   web:
     build:
       context: ./frontend
-      args: { NEXT_PUBLIC_API_URL: "http://localhost:${API_PORT:-8001}" }
+      args: { NEXT_PUBLIC_API_URL: "http://localhost:${API_PORT:-8001}", NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_URL:-}",
+              NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}" }
     ports: ["127.0.0.1:${WEB_PORT:-3100}:3000"]
     depends_on: [api]
     restart: unless-stopped

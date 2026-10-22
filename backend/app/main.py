@@ -7,10 +7,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import admin, assistant, events, prices, products, recommendations, vendors
+from app.api import account, admin, assistant, events, prices, products, recommendations, vendors
 from app.config import get_settings
 from app.database.client import DatabaseNotConfigured
 from app.logging_config import configure_logging
+from app.security.permissions import auth_configured
 
 configure_logging()
 log = logging.getLogger("app")
@@ -23,10 +24,10 @@ app = FastAPI(
                 "on-demand vendor/EMI comparison and an explainable purchase advisor.",
 )
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=False,
-                   allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
+                   allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
 for r in (products.router, prices.router, vendors.router, recommendations.router, assistant.router,
-          events.router, admin.router):
+          events.router, account.router, admin.router):
     app.include_router(r)
 
 
@@ -45,4 +46,4 @@ async def unhandled(_: Request, exc: Exception):
 def health() -> dict:
     return {"status": "ok", "llm_provider": settings.llm_provider,
             "llm_configured": bool(settings.gemini_api_key), "database_configured": bool(settings.database_url),
-            "admin_api_enabled": bool(settings.admin_api_token)}
+            "admin_api_enabled": bool(settings.admin_api_token), "auth_configured": auth_configured(settings)}

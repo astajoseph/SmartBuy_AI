@@ -18,6 +18,11 @@ async def create_recommendation(req: RecommendationRequest, request: Request, re
     if req.include_vendor_analysis or req.include_reviews:
         vendor_rate_limit(request)       # only requests that may reach vendor sites count against the limit
     try:
-        return await recommend(repo, req, user_id=user.id if user else None)
+        rec = await recommend(repo, req, user_id=user.id if user else None)
     except ProductNotFound:
         raise HTTPException(404, "Product not found") from None
+    if user:
+        repo.log_activity(user.id, "recommendation", f"Advisor recommendation for {req.product_id}: {rec.action}",
+                          product_id=req.product_id,
+                          payload={"action": rec.action, "request": req.model_dump(mode="json", exclude_none=True)})
+    return rec

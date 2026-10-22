@@ -254,3 +254,49 @@ triggered manually to verify (result recorded below).
   node_modules moved here; 150 tests pass). The local presentation and overview text file were deleted on request.
 * **Pending:** set the secret `SMARTBUY_DATABASE_URL` on this repository — until then the scheduled collection
   here cannot reach Supabase.
+
+## 2026-10-22 · Scheduled collection restored
+
+* All `smartbuy-collect` runs since the move (2026-10-20 14:17 → 2026-10-22 17:07 UTC) had failed with
+  `PoolTimeout`: the secret `SMARTBUY_DATABASE_URL` was missing on this repository, so `DATABASE_URL` was empty.
+* Secret set (first saved under a wrong name, then with a trailing newline → `database "postgres\n" does not exist`;
+  fixed by setting it from `.env` with `--body`).
+* Manual run 39830430464 succeeded: `olay-total-effects-50g` (source 2), 7 records inserted. Pending item closed.
+
+## 2026-10-23 · Accounts, admin console, user history and resumable assistant conversations
+
+What it does (details: `docs/accounts.md`):
+* **Sign-in page** `/login` (Supabase Auth, e-mail + password): sign in, create account, forgot password;
+  `/reset-password` sets a new password from the reset e-mail. Nav shows *Sign in* or the account name + *Sign out*.
+* **History per account**: assistant questions, advisor recommendations, notification views, saved price alerts,
+  sign-ins and admin actions go to `smartbuy.activity_log`; `/account` shows conversations, history, price alerts
+  and profile. Advisor and Settings now require sign-in; target prices are saved to the account.
+* **Saved assistant conversations** (`chat_sessions`, `chat_messages`): list of conversations on the advisor page,
+  the last one reopens automatically, conversations can be continued, renamed or deleted.
+* **Continues after an internet drop**: every question has a browser-generated `request_id` and waits in a
+  `localStorage` outbox until answered; it is re-sent automatically (backoff, on `online`, on tab focus, on reload).
+  The server answers in a task that survives a dropped request, and a re-sent `request_id` returns the saved
+  answer instead of answering twice; failed / abandoned answers are re-generated (Retry button). Earlier messages
+  of the conversation are loaded from the database as the assistant's context, so a resumed chat keeps context.
+* **Admin console** `/admin` (admin accounts only): overview stats, users (search, make/remove admin,
+  disable/enable, per-user conversations, alerts and history), all users' activity, read any conversation, and the
+  existing operations tools. Cannot disable/demote yourself or remove the last admin; changes are audited.
+  First admin via `ADMIN_EMAILS`; `ADMIN_API_TOKEN` still works for scripts.
+
+How:
+* Migration `supabase/migrations/20261023000001_accounts.sql` (4 tables + RLS owner policies) — **applied to Supabase**.
+* Backend: `security/permissions.py` verifies Supabase tokens with the project's ES256 signing keys (JWKS) or the
+  legacy HS256 secret, creates profiles, blocks disabled accounts, accepts admin accounts or the token;
+  new `api/account.py`, conversation endpoints in `api/assistant.py`, user/activity endpoints in `api/admin.py`,
+  `services/chat_service.py`, repository methods; activity logging in recommendations, notifications, targets, chat.
+  `cryptography` pinned in `requirements.txt` (needed for ES256).
+* Frontend: `@supabase/supabase-js` 2.117.3, `lib/supabase.ts`, `components/AuthProvider.tsx` (session, profile,
+  `RequireAuth`), `hooks/useConversation.ts` (outbox + retry + polling), `components/History.tsx`, pages
+  `login`, `reset-password`, `account`, rewritten `admin`, advisor chat and settings sync; API client attaches the
+  sign-in token automatically and reports dropped connections as retryable.
+* Config: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `ADMIN_EMAILS` (`.env.example`), `NEXT_PUBLIC_SUPABASE_*`
+  (`frontend/.env.example`, Dockerfile build args, docker-compose).
+* Tests: `backend/tests/test_accounts.py` (8 new) — 158 pass. Frontend type-check and production build clean.
+  Live check against Supabase: health reports auth configured; protected endpoints return 401 without a valid token.
+* **Pending:** put the project's public anon key in `.env` (`SUPABASE_ANON_KEY`) and `frontend/.env.local`, and set
+  the Auth Site URL / redirect URLs in the Supabase dashboard.

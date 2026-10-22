@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     # Auth
     admin_api_token: SecretStr | None = None
     supabase_url: str | None = None
-    supabase_jwt_secret: SecretStr | None = None
+    supabase_jwt_secret: SecretStr | None = None   # only for projects still on the legacy shared JWT secret
+    admin_emails: str = ""                          # comma separated; these accounts become admins on sign-in
     cors_origins: str = "http://localhost:3000"
 
     # Registry files
@@ -66,6 +67,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def admin_email_set(self) -> set[str]:
+        return {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
 
     @property
     def extra_allowed_host_set(self) -> set[str]:

@@ -8,7 +8,7 @@ the price columns have CHECK (price > 0)).
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 from urllib.parse import urlsplit
@@ -513,3 +513,151 @@ class Repository:
         return self._all(
             """select * from notifications where user_id is null or user_id = %s
                order by created_at desc limit %s""", (user_id, limit))
+
+    # ------------------------------------------------------------------ accounts
+    def ensure_profile(self, user_id, email: str | None, *, make_admin: bool = False) -> dict:
+        """Create the profile on first sight; refresh email / last_seen_at at most every 5 minutes."""
+        row = self._one("select * from profiles where user_id = %s", (user_id,))
+        if row and row["email"] == email and (row["role"] == "admin" or not make_admin) \
+                and row["last_seen_at"] > _now() - timedelta(minutes=5):
+            return row
+        return self._one(
+            """insert into profiles (user_id, email, role) values (%s, %s, %s)
+               on conflict (user_id) do update set email = excluded.email, last_seen_at = now(),
+                   role = case when %s then 'admin' else profiles.role end
+               returning *""", (user_id, email, "admin" if make_admin else "user", make_admin))
+
+    def get_profile(self, user_id) -> dict | None:
+        return self._one("select * from profiles where user_id = %s", (user_id,))
+
+    def update_profile(self, user_id, *, display_name: str | None) -> dict | None:
+        return self._one("update profiles set display_name = %s where user_id = %s returning *", (display_name, user_id))
+
+    def set_profile_role(self, user_id, role: str) -> dict | None:
+        return self._one("update profiles set role = %s where user_id = %s returning *", (role, user_id))
+
+    def set_profile_disabled(self, user_id, disabled: bool) -> dict | None:
+        return self._one("update profiles set is_disabled = %s where user_id = %s returning *", (disabled, user_id))
+
+    def count_admins(self) -> int:
+        return self._one("select count(*) as n from profiles where role = 'admin' and not is_disabled")["n"]
+
+    def list_profiles(self, search: str | None = None, limit: int = 100) -> list[dict]:
+        return self._all(
+            """select p.*,
+                      (select count(*) from chat_sessions s where s.user_id = p.user_id and s.deleted_at is null) as chats,
+                      (select count(*) from activity_log a where a.user_id = p.user_id) as activities,
+                      (select max(a.created_at) from activity_log a where a.user_id = p.user_id) as last_activity_at
+               from profiles p
+               where %(q)s::text is null or p.email ilike %(like)s or p.display_name ilike %(like)s
+               order by p.last_seen_at desc limit %(limit)s""",
+            {"q": search, "like": f"%{search}%" if search else None, "limit": limit})
+
+    # ------------------------------------------------------------------ activity history
+    def log_activity(self, user_id, kind: str, summary: str, *, product_id: str | None = None,
+                     payload: dict | None = None, throttle_minutes: float = 0) -> bool:
+        """Append to the user's history. With throttle_minutes, skip if the same kind/product was logged recently."""
+        if throttle_minutes and self._one(
+                """select 1 as x from activity_log where user_id = %s and kind = %s
+                   and product_id is not distinct from %s and created_at >= %s limit 1""",
+                (user_id, kind, product_id, _now() - timedelta(minutes=throttle_minutes))):
+            return False
+        self._one("""insert into activity_log (user_id, kind, product_id, summary, payload)
+                     values (%s, %s, %s, %s, %s) returning id""",
+                  (user_id, kind, product_id, summary[:500], _json(payload or {})))
+        return True
+
+    def list_activity(self, user_id=None, *, kind: str | None = None, limit: int = 50,
+                      before_id: int | None = None) -> list[dict]:
+        return self._all(
+            """select a.*, p.email, p.display_name from activity_log a left join profiles p on p.user_id = a.user_id
+               where (%(uid)s::uuid is null or a.user_id = %(uid)s) and (%(kind)s::text is null or a.kind = %(kind)s)
+                 and (%(before)s::bigint is null or a.id < %(before)s)
+               order by a.id desc limit %(limit)s""",
+            {"uid": user_id, "kind": kind, "before": before_id, "limit": limit})
+
+    def activity_stats(self) -> dict:
+        row = self._one(
+            """select (select count(*) from profiles) as users,
+                      (select count(*) from profiles where role = 'admin') as admins,
+                      (select count(*) from profiles where is_disabled) as disabled,
+                      (select count(distinct user_id) from activity_log where created_at >= now() - interval '1 day') as active_24h,
+                      (select count(distinct user_id) from activity_log where created_at >= now() - interval '7 days') as active_7d,
+                      (select count(*) from chat_messages m join chat_sessions s on s.id = m.session_id
+                        where m.role = 'user' and m.created_at >= now() - interval '7 days') as questions_7d,
+                      (select count(*) from chat_messages where role = 'assistant' and status = 'failed') as failed_answers""")
+        row["by_kind_7d"] = {r["kind"]: r["n"] for r in self._all(
+            """select kind, count(*) as n from activity_log where created_at >= now() - interval '7 days'
+               group by kind order by kind""")}
+        return row
+
+    # ------------------------------------------------------------------ assistant conversations
+    def create_chat_session(self, session_id, user_id, title: str | None = None, product_id: str | None = None) -> dict:
+        """Idempotent: re-creating an existing id (a retried request) returns the existing session."""
+        self._one("""insert into chat_sessions (id, user_id, title, product_id) values (%s, %s, %s, %s)
+                     on conflict (id) do nothing returning id""",
+                  (session_id, user_id, (title or "New conversation")[:120], product_id))
+        return self._one("select * from chat_sessions where id = %s", (session_id,))
+
+    def get_chat_session(self, session_id) -> dict | None:
+        return self._one("select * from chat_sessions where id = %s and deleted_at is null", (session_id,))
+
+    def list_chat_sessions(self, user_id, limit: int = 50) -> list[dict]:
+        return self._all(
+            """select s.*, (select count(*) from chat_messages m where m.session_id = s.id and m.role = 'user') as questions,
+                      (select left(m.content, 160) from chat_messages m where m.session_id = s.id and m.role = 'user'
+                       order by m.id desc limit 1) as last_question
+               from chat_sessions s where s.user_id = %s and s.deleted_at is null
+               order by s.updated_at desc limit %s""", (user_id, limit))
+
+    def rename_chat_session(self, session_id, title: str) -> dict | None:
+        return self._one("update chat_sessions set title = %s where id = %s and deleted_at is null returning *",
+                         (title[:120], session_id))
+
+    def delete_chat_session(self, session_id) -> None:
+        self._one("update chat_sessions set deleted_at = now() where id = %s returning id", (session_id,))
+
+    def chat_messages(self, session_id, limit: int = 500) -> list[dict]:
+        return self._all("""select * from (select * from chat_messages where session_id = %s order by id desc limit %s) m
+                            order by id""", (session_id, limit))
+
+    def chat_context(self, session_id, before_request_id, limit: int = 12) -> list[dict]:
+        """Completed messages earlier in the conversation, oldest first: the assistant's memory of the chat."""
+        return self._all(
+            """select role, content from (
+                   select m.* from chat_messages m where m.session_id = %(s)s and m.status = 'complete'
+                   and m.request_id <> %(r)s order by m.id desc limit %(n)s) x order by id""",
+            {"s": session_id, "r": before_request_id, "n": limit})
+
+    def begin_chat_turn(self, session_id, request_id, question: str, *, stale_after_seconds: int = 180) -> tuple[dict, bool]:
+        """Store the question and claim its answer slot. Returns (assistant_row, claimed).
+
+        claimed=False means the answer already exists or another worker is producing it right now;
+        a failed answer, or one left 'pending' longer than stale_after_seconds (crash, restart), is re-claimed."""
+        with self.db.connection() as conn, conn.transaction():
+            conn.execute("""insert into chat_messages (session_id, request_id, role, content)
+                            values (%s, %s, 'user', %s) on conflict do nothing""", (session_id, request_id, question))
+            row = conn.execute("""insert into chat_messages (session_id, request_id, role, status)
+                                  values (%s, %s, 'assistant', 'pending') on conflict do nothing returning *""",
+                               (session_id, request_id)).fetchone()
+            if row:
+                conn.execute("update chat_sessions set updated_at = now() where id = %s", (session_id,))
+                return row, True
+            row = conn.execute(
+                """update chat_messages set status = 'pending', content = '', updated_at = now()
+                   where session_id = %s and request_id = %s and role = 'assistant'
+                     and (status = 'failed' or (status = 'pending' and updated_at < now() - make_interval(secs => %s)))
+                   returning *""", (session_id, request_id, stale_after_seconds)).fetchone()
+            if row:
+                return row, True
+            return conn.execute("""select * from chat_messages where session_id = %s and request_id = %s
+                                   and role = 'assistant'""", (session_id, request_id)).fetchone(), False
+
+    def finish_chat_turn(self, message_id: int, content: str, status: str, meta: dict,
+                         product_id: str | None = None) -> dict:
+        with self.db.connection() as conn, conn.transaction():
+            row = conn.execute("""update chat_messages set content = %s, status = %s, meta = %s, updated_at = now()
+                                  where id = %s returning *""", (content, status, _json(meta), message_id)).fetchone()
+            conn.execute("""update chat_sessions set updated_at = now(), product_id = coalesce(%s, product_id)
+                            where id = %s""", (product_id, row["session_id"]))
+            return row

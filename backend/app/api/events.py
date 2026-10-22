@@ -22,4 +22,7 @@ def events(repo: Repository = Depends(get_repo)) -> dict:
 
 @router.get("/api/notifications", summary="Notifications (broadcast + the signed-in user's own)")
 def notifications(repo: Repository = Depends(get_repo), user: CurrentUser | None = Depends(optional_user)) -> list[dict]:
-    return repo.list_notifications(user.id if user else None)
+    rows = repo.list_notifications(user.id if user else None)
+    if user:
+        repo.log_activity(user.id, "notifications_viewed", f"Viewed notifications ({len(rows)})", throttle_minutes=30)
+    return rows
