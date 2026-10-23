@@ -38,8 +38,9 @@ async def reviews(product_id: str, refresh: bool = False, repo: Repository = Dep
     if not repo.get_product(product_id):
         raise HTTPException(404, "Product not found")
     vds = await vendor_service.get_vendor_data(repo, product_id, ("reviews",), force_refresh=refresh)
+    product = repo.get_product(product_id)
     return {"product_id": product_id,
-            "vendors": [review_service.summarise(v.reviews, v.vendor_source.get("vendor_name") or v.vendor_source["vendor_id"])
+            "vendors": [review_service.analyse_vendor(repo, v, product)
                         | {"status": v.status, "freshness": v.freshness, "message": v.message} for v in vds],
             "message": None if vds else "No vendor URLs are registered for this product yet."}
 
@@ -54,6 +55,17 @@ def sellers(product_id: str, include_inactive: bool = False, repo: Repository = 
             "discovered_sites": [{k: v[k] for k in ("id", "vendor_name", "source_url", "origin", "first_seen_at",
                                                      "last_checked_at", "last_in_stock_at")} for v in discovered],
             "last_checked_at": max((r["last_seen_at"] for r in rows), default=None)}
+
+
+@router.get("/api/products/{product_id}/seller-reputation",
+            summary="Organic growth of marketplace sub-sellers' ratings across discovery checks (never fetches)")
+def seller_reputation(product_id: str, days: int = Query(90, ge=1, le=365), repo: Repository = Depends(get_repo)) -> dict:
+    if not repo.get_product(product_id):
+        raise HTTPException(404, "Product not found")
+    from app.services.review_integrity import seller_reputation as rep
+    return {"product_id": product_id, "sellers": rep(repo.seller_offer_series(product_id, days)),
+            "note": "Growth of each seller's own rating count and % positive, from the checks every 6 hours. "
+                    "Steady growth suggests organic sales; spikes or falling % positive are flagged."}
 
 
 @router.get("/api/vendors/{vendor_id}/offers", summary="Cached EMI offers for a vendor (never fetches)")

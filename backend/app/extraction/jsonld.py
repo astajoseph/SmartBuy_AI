@@ -120,6 +120,7 @@ def reviews_of(product: dict) -> list[dict]:
         if not body and not rating:
             continue
         out.append({
+            "reviewer": name_of(r.get("author")),
             "text": str(body).strip() if body else None,
             "rating": rating.get("ratingValue"),
             "best": rating.get("bestRating") or 5,

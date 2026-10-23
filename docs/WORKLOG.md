@@ -376,5 +376,24 @@ the product image)", so it would now be rejected automatically.
 and refused Apollo Pharmacy and Flipkart's image CDN. NAT64 answers are now judged by the IPv4 address they embed
 (private / loopback / metadata addresses stay blocked; test added). 188 tests pass.
 
+**Review intelligence: sentiment + fake-review signals + organic growth.**
+* Before: keyword sentiment and themes only; nothing judged whether a review itself was authentic.
+* Sentiment: VADER (`vaderSentiment==3.3.2`, MIT) + product-word lexicon (`review_service.DOMAIN_LEXICON`).
+* `services/review_integrity.py`: per-review trust score with reasons (incentivized, copied, unverified, generic,
+  rating/text mismatch, burst, repeat reviewer; boosts for helpful votes / photos / detail; other pack sizes excluded),
+  vendor integrity score / label / confidence, trust-weighted rating and sentiment, star-distribution shape, page vs
+  genuine-sample rating, rating-count growth; sub-seller reputation growth from the discovery checks.
+* Adapters now store review id, reviewer, title, helpful / unhelpful votes, photos, variant bought, Amazon Vine badge,
+  and the star distribution (Amazon histogram, Myntra / Nykaa counts). Migration `20261024000003_review_integrity.sql`
+  — **applied to Supabase**.
+* Found while testing on real data: every fetch stored the same reviews again (Amazon: 26 rows = 13 reviews), which
+  would have looked like copied reviews; the analysis now merges re-fetched copies.
+* Live result (Olay): Amazon 13 distinct reviews — 10 genuine-looking, 3 uncertain (one-word praise), integrity 92
+  "organic", rating growth steady at 3.9 ratings/day; Myntra 5 and Nykaa 4 reviews — too few (and Myntra hand-picked),
+  so confidence is low.
+* API: `/api/products/{id}/reviews` returns `integrity`, `flagged_examples`; new `/api/products/{id}/seller-reputation`.
+  Frontend: integrity panel, star distribution, genuine vs flagged quotes, seller reputation table on the Reviews page.
+  Assistant prompt rule 11. Tests: `tests/test_review_integrity.py` (19) — 206 pass.
+
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.

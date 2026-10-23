@@ -15,4 +15,5 @@ google-genai==1.41.0
 pyjwt==2.10.1
 cryptography==50.0.2          # PyJWT needs it to verify Supabase ES256/RS256 sign-in tokens
 playwright==1.64.0
+vaderSentiment==3.3.2          # review sentiment (rule-based VADER model, MIT); extended with product words in review_service
 rapidocr_onnxruntime==1.4.4    # OCR of product images (pack size) in seller discovery; Apache-2.0, CPU, models bundled; allows numpy 2

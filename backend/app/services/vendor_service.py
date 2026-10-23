@@ -200,6 +200,9 @@ def _store_result(repo: Repository, vs: dict, result: ExtractionResult, job_id: 
                         "review_kind": agg["kind"], "review_source_url": vs["source_url"],
                         "rating": _dec(agg.get("rating")), "rating_scale": _dec(agg.get("best")),
                         "review_count": _int(agg.get("count")), "fetched_at": fetched,
+                        "rating_distribution": {"unit": agg.get("distribution_unit") or "count",
+                                                "stars": {str(k): v for k, v in agg["distribution"].items()}}
+                                               if agg.get("distribution") else None,
                         "expires_at": fetched + cache_service.ttl("review_aggregate")})
     for r in result.reviews:
         sentiment, aspects = score_review(r.get("text") or "")
@@ -207,7 +210,11 @@ def _store_result(repo: Repository, vs: dict, result: ExtractionResult, job_id: 
                         "review_kind": r.get("kind", "product_review"), "review_source_url": vs["source_url"],
                         "rating": _dec(r.get("rating")), "rating_scale": _dec(r.get("best")),
                         "review_text": (r.get("text") or "")[:4000] or None, "review_date": _date(r.get("date")),
-                        "verified_purchase": r.get("verified"),
+                        "verified_purchase": r.get("verified"), "external_review_id": r.get("id"),
+                        "reviewer_name": (r.get("reviewer") or "")[:120] or None, "review_title": (r.get("title") or "")[:300] or None,
+                        "helpful_votes": _int(r.get("helpful")), "unhelpful_votes": _int(r.get("unhelpful")),
+                        "has_media": r.get("media"), "variant_text": (r.get("variant") or "")[:200] or None,
+                        "incentivized": r.get("incentivized"),
                         "sentiment": sentiment, "aspect_labels": aspects, "fetched_at": fetched,
                         "expires_at": fetched + cache_service.ttl("review_samples")})
     repo.insert_reviews(reviews)

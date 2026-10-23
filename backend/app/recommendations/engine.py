@@ -82,7 +82,7 @@ async def recommend(repo: Repository, req: RecommendationRequest, *, user_id=Non
             if len(prices) >= 2:
                 spread = (max(prices) - min(prices)) / min(prices) * 100
         if req.include_reviews:
-            review_block = [review_service.summarise(v.reviews, v.vendor_source.get("vendor_name") or v.vendor_source["vendor_id"])
+            review_block = [review_service.analyse_vendor(repo, v, product)
                             | {"freshness": v.freshness, "status": v.status, "message": v.message} for v in vds]
             if not vds:
                 review_block = []

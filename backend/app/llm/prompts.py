@@ -25,9 +25,12 @@ Hard rules:
    and give the reason/timestamp from the evidence instead of silently leaving it out.
 10. Use ₹ with Indian digit grouping as given. Be concise: short paragraphs or bullets, under 250 words unless
    the user asks for detail.
+11. Reviews: when an "integrity" block is present, base conclusions about reviews on trust_weighted_rating /
+   trust_weighted_sentiment and the integrity_label, say how many reviews were flagged as suspicious and why
+   (vendor_flags, flag_counts), and call flagged reviews "suspicious", never "fake" - the signals do not prove it.
 """
 
-_UNTRUSTED_KEYS = {"raw_text", "excerpts", "review_text", "text", "notes", "delivery", "message"}
+_UNTRUSTED_KEYS = {"raw_text", "excerpts", "flagged_examples", "review_text", "text", "notes", "delivery", "message"}
 
 
 def _split_untrusted(obj, path="", sink=None):

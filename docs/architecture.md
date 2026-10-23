@@ -46,6 +46,24 @@ The price-history collector still never touches vendor pages. A separate worker 
    shops not in stock for `SELLER_INACTIVE_DAYS` (30) are deactivated — never deleted — and re-activated when seen
    in stock again. Registry vendor pages (`config/products.yaml`) are never deactivated automatically.
 
+### Review intelligence (`services/review_service.py`, `services/review_integrity.py`)
+
+* **Sentiment:** VADER (rule-based, MIT) with product words added ("greasy", "breakout", "counterfeit" …), per
+  sentence; aspect themes (texture, skin reaction, delivery, value …) from the same scores.
+* **Sample:** every fetch of a vendor page is pooled and re-fetched copies are merged (vendor review id, else
+  text + rating + date), so the sample grows over time.
+* **Integrity per review** (score 0–1, reasons shown): free/discounted-product reviews (vendor badge such as Amazon
+  Vine, or wording), copied text (same page or another site), not a verified purchase where the vendor shows
+  verification, short generic praise, stars contradicting the text, bursts of high ratings (samples ≥ 8),
+  repeat named reviewers; boosts for helpful votes, photos, detailed text. Reviews of another pack size are not counted.
+* **Per vendor:** integrity score and label (organic ≥ 75 / mixed ≥ 50 / doubtful), confidence (sample size, hand-picked
+  pages), trust-weighted rating and sentiment beside the raw ones, star-distribution shape (polarized 5★/1★), page
+  rating vs. genuine-sample rating, and **rating growth** from the stored rating-count history (ratings/day, spikes,
+  rating jumps without new ratings). Themes and quotes come from reviews that are not suspicious.
+* **Sub-seller reputation** (`GET /api/products/{id}/seller-reputation`): growth of each Amazon sub-seller's own rating
+  count and % positive across the 6-hourly discovery checks — steady growth vs. spikes / falling % positive.
+* The LLM receives the integrity block as evidence and must call flagged reviews "suspicious", never "fake".
+
 Discovered shops join the normal vendor comparison (they are ordinary active vendor sources); marketplace
 sub-sellers are shown separately (`GET /api/products/{id}/sellers`, database only).
 

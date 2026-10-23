@@ -387,15 +387,42 @@ class Repository:
     def insert_reviews(self, rows: list[dict]) -> int:
         cols = ["product_id", "vendor_id", "vendor_source_id", "review_kind", "review_source_url", "rating",
                 "rating_scale", "review_count", "review_text", "review_date", "verified_purchase", "sentiment",
-                "aspect_labels", "fetched_at", "expires_at", "verification_status"]
+                "aspect_labels", "fetched_at", "expires_at", "verification_status", "external_review_id", "reviewer_name",
+                "review_title", "helpful_votes", "unhelpful_votes", "has_media", "variant_text", "incentivized",
+                "rating_distribution"]
         with self.db.connection() as conn, conn.transaction():
             for r in rows:
                 vals = {c: r.get(c) for c in cols}
                 vals["aspect_labels"] = _json(r.get("aspect_labels") or {})
+                vals["rating_distribution"] = _json(r["rating_distribution"]) if r.get("rating_distribution") else None
                 vals["verification_status"] = r.get("verification_status") or "extracted_from_page"
                 conn.execute(f"insert into vendor_reviews ({', '.join(cols)}) values "
                              f"({', '.join('%(' + c + ')s' for c in cols)})", vals)
         return len(rows)
+
+    def review_history(self, vendor_source_id: int, *, since_days: int = 365) -> list[dict]:
+        """Every review / aggregate row stored for a vendor page (all fetches). Pages are re-fetched, so the same
+        review appears once per fetch; review_integrity.distinct_reviews() merges them."""
+        return self._all(
+            """select * from vendor_reviews where vendor_source_id = %s and fetched_at >= now() - make_interval(days => %s)
+               order by fetched_at, id""", (vendor_source_id, since_days))
+
+    def product_review_texts(self, product_id: str) -> list[dict]:
+        """Review texts of all vendors of a product (cross-vendor duplicate check)."""
+        return self._all(
+            """select distinct on (vendor_source_id, coalesce(external_review_id, md5(review_text)))
+                      vendor_source_id, vendor_id, external_review_id, reviewer_name, review_text
+               from vendor_reviews where product_id = %s and review_text is not null
+               order by vendor_source_id, coalesce(external_review_id, md5(review_text)), fetched_at desc""", (product_id,))
+
+    def seller_offer_series(self, product_id: str, days: int = 90) -> list[dict]:
+        return self._all(
+            """select s.id as seller_id, s.seller_name, s.seller_key, s.is_active, v.name as marketplace,
+                      o.observed_at, o.seller_rating, o.seller_rating_count, o.seller_positive_pct, o.price, o.in_stock
+               from vendor_sellers s join vendor_seller_offers o on o.seller_id = s.id
+               join product_vendor_sources vs on vs.id = s.vendor_source_id join vendors v on v.id = vs.vendor_id
+               where s.product_id = %s and o.observed_at >= now() - make_interval(days => %s)
+               order by s.id, o.observed_at""", (product_id, days))
 
     def reviews_at(self, vendor_source_id: int, fetched_at: datetime) -> list[dict]:
         return self._all("select * from vendor_reviews where vendor_source_id = %s and fetched_at = %s order by id",

@@ -48,6 +48,10 @@ def _txt(el) -> str | None:
     return t or None
 
 
+def _int_or_none(v) -> int | None:
+    return int(v) if str(v or "").isdigit() else None
+
+
 def _embedded_json(html: str, marker: str) -> dict | None:
     i = html.find(marker)
     if i < 0:
@@ -144,9 +148,15 @@ class AmazonInAdapter(_MarketplaceAdapter):
         m = re.search(r"([\d.]+) out of 5", (rating.get("title") if rating else "") or "")
         cnt = s.select_one("#acrCustomerReviewText")
         cm = re.search(r"([\d,]+)", (cnt.get("aria-label") or cnt.get_text()) if cnt else "")
+        dist = {}
+        for a in s.select("#histogramTable a[aria-label], #histogramTable li a[aria-label]"):
+            hm = re.match(r"(\d+) percent of reviews have (\d) stars?", a.get("aria-label") or "")
+            if hm:
+                dist[hm.group(2)] = int(hm.group(1))
         if m:
             r.review_aggregates.append({"kind": "product_aggregate", "rating": m.group(1), "best": 5,
-                                        "count": cm.group(1).replace(",", "") if cm else None})
+                                        "count": cm.group(1).replace(",", "") if cm else None,
+                                        "distribution": dist or None, "distribution_unit": "percent"})
         for rv in s.select('[data-hook="review"]')[:20]:
             text = _txt(rv.select_one('[data-hook="reviewText"]') or rv.select_one('[data-hook="review-body"]')) or ""
             text = re.sub(r"\s+", " ", _A11Y_NOISE.sub(" ", text)).strip()
@@ -159,9 +169,17 @@ class AmazonInAdapter(_MarketplaceAdapter):
                 except ValueError:
                     date = None
             if text or star:
+                helpful = re.search(r"([\d,]+|One) (?:person|people) found this helpful",
+                                    _txt(rv.select_one('[data-hook="helpful-vote-statement"]')) or "")
+                badges = (_txt(rv.select_one('[data-hook="review-badges"]')) or "") + " " + (_txt(rv) or "")[:400]
                 r.reviews.append({"kind": "product_review", "text": text or None, "rating": star.group(1) if star else None,
                                   "best": 5, "date": date, "verified": rv.select_one('[data-hook="avp-badge"]') is not None,
-                                  "title": _txt(rv.select_one('[data-hook="reviewTitle"]'))})
+                                  "title": _txt(rv.select_one('[data-hook="reviewTitle"]')),
+                                  "id": rv.get("id"), "reviewer": _txt(rv.select_one(".a-profile-name")),
+                                  "helpful": (1 if helpful.group(1) == "One" else int(helpful.group(1).replace(",", ""))) if helpful else 0,
+                                  "media": rv.select_one('[data-hook="review-image-tile"], [data-hook="review-video"]') is not None,
+                                  "variant": _txt(rv.select_one('[data-hook="format-strip"]')),
+                                  "incentivized": "vine customer review" in badges.lower()})
         if price is None:
             r.warnings.append("Price element not found; Amazon may have changed the page layout.")
         return r
@@ -307,7 +325,9 @@ class MyntraAdapter(_MarketplaceAdapter):
                 v = int(ts)
                 date = datetime.fromtimestamp(v / 1000 if v > 1e11 else v, tz=timezone.utc).date().isoformat()
             r.reviews.append({"kind": "product_review", "text": rv["reviewText"], "rating": rv.get("userRating"),
-                              "best": 5, "date": date, "verified": None})
+                              "best": 5, "date": date, "verified": None, "id": rv.get("reviewId"),
+                              "reviewer": rv.get("userName"), "helpful": _int_or_none(rv.get("upvotes")),
+                              "unhelpful": _int_or_none(rv.get("downvotes")), "media": bool(rv.get("reviewImages"))})
         if r.reviews:
             r.warnings.append("Myntra's 'top reviews' are hand-picked by Myntra and may cover related variants; not a random sample.")
         if r.vendor["emi_status"] == "not_offered":
@@ -385,7 +405,10 @@ class NykaaAdapter(_MarketplaceAdapter):
             date = (rv.get("createdOn") or "")[:10] or None
             if text:
                 r.reviews.append({"kind": "product_review", "text": text, "rating": rv.get("rating"), "best": 5,
-                                  "date": date, "verified": rv.get("isBuyer")})
+                                  "date": date, "verified": rv.get("isBuyer"), "id": str(rv["id"]) if rv.get("id") else None,
+                                  "reviewer": rv.get("name") or rv.get("userName"),
+                                  "helpful": _int_or_none(rv.get("likeCount") or rv.get("helpfulCount")),
+                                  "media": bool(rv.get("images") or rv.get("reviewImages")) if ("images" in rv or "reviewImages" in rv) else None})
         if p.get("latestReviews") and not r.reviews:
             r.warnings.append("Nykaa's latest reviews on the page contain ratings but no text.")
         return r

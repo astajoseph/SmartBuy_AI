@@ -119,7 +119,25 @@ export interface ReviewBlock {
   positive_themes?: { aspect: string; mentions: number; avg_sentiment: number }[];
   negative_themes?: { aspect: string; mentions: number; avg_sentiment: number }[];
   aspect_sentiment?: Record<string, { mentions: number; avg: number }>;
-  excerpts?: { text: string; rating: number | null; date: string | null }[]; limitations: string[]; method: string;
+  excerpts?: ReviewExcerpt[]; flagged_examples?: ReviewExcerpt[]; limitations: string[]; method: string;
+  integrity?: ReviewIntegrity;
+}
+export interface ReviewExcerpt {
+  text: string; rating: number | null; date: string | null; verified?: boolean | null; helpful_votes?: number | null;
+  trust?: "likely_genuine" | "uncertain" | "suspicious"; trust_score?: number; reasons?: string[]; boosts?: string[];
+}
+export interface ReviewIntegrity {
+  integrity_score: number | null; integrity_label: "organic" | "mixed" | "doubtful" | null; confidence: "none" | "low" | "medium" | "high";
+  distinct_reviews: number; counted: number; other_variant_reviews: number; likely_genuine: number; uncertain: number; suspicious: number;
+  verified_share: number | null; flag_counts: Record<string, number>; sample_avg_rating: number | null; trust_weighted_rating: number | null;
+  sample_sentiment: number | null; trust_weighted_sentiment: number | null; page_rating: number | null;
+  rating_distribution: Record<string, number> | null; vendor_flags: string[]; limitations: string[]; method: string;
+  growth: { status: string; snapshots: number; ratings_per_day?: number; growth_pct_per_month?: number; flags: string[] };
+}
+export interface SellerReputation {
+  seller_id: number; seller_name: string | null; marketplace: string; is_active: boolean; observations: number; status: string;
+  rating: number | null; ratings: number | null; positive_pct: number | null; ratings_per_day: number | null;
+  positive_pct_change?: number | null; flags: string[];
 }
 export interface VendorReviews { vendor: string; product: ReviewBlock | null; seller: ReviewBlock | null; status: string; freshness: Freshness | null; message: string | null }
 

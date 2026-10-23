@@ -33,7 +33,7 @@ All are `timestamptz` (UTC). Money is `numeric(12,2)` with `CHECK (price > 0)`; 
 | `sale_events` | event registry with `verification_status` (`confirmed_official`, `reported_by_media`, `observed_on_source_chart`, `calendar_date`, `recurring_unconfirmed`, `hypothetical`) |
 | `vendor_snapshots` | one row per vendor fetch (ok / partial / failed / blocked) incl. per-kind expiry map |
 | `emi_offers` | parsed EMI terms + calculated totals, assumptions, raw text, verification status |
-| `vendor_reviews` | aggregates and individual reviews, product vs seller (`review_kind`), sentiment, aspects |
+| `vendor_reviews` | aggregates and individual reviews, product vs seller (`review_kind`), sentiment, aspects; integrity inputs `external_review_id`, `reviewer_name`, `review_title`, `helpful_votes`, `unhelpful_votes`, `has_media`, `variant_text`, `incentivized`; aggregates `rating_distribution` (`{"unit": "count"/"percent", "stars": {...}}`) |
 | `forecasts` | method, point, interval, probability, validation metrics, limitations, base price/time |
 | `prediction_outcomes` | actual vs forecast once the horizon has passed |
 | `purchase_recommendations` | every recommendation with reasons, risks, request, linked forecast / EMI offers |
