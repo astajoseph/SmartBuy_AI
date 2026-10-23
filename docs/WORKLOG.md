@@ -333,5 +333,16 @@ Also today: "Supabase shows no tables" — the data was there all along; every t
 Supabase Table Editor opens on `public`. Switch the schema dropdown to `smartbuy`, or query `smartbuy.<table>` in the
 SQL Editor. Each GitHub collection run had written its rows (e.g. job #29, 2026-10-23 17:04 UTC, 5 rows).
 
+**Incident — price-history table dropped (found and repaired 2026-10-24).** The first manual run of
+`smartbuy-discover` failed with `relation "v_price_points" does not exist`. Supabase's statement log
+(`pg_stat_statements`) shows `DROP TABLE smartbuy.historical_price_points CASCADE` run once by role `postgres` — the
+form the Supabase Table Editor's "Delete table" (cascade) produces; it is not in this code base. The cascade also removed
+the views `v_price_points` and `v_daily_price`, which broke product pages and history. Repair:
+* migration `20261024000002_restore_price_history.sql` (idempotent; definitions copied from the init migration) —
+  applied to Supabase;
+* history rebuilt from the sources: Olay 1,149 points (chart 2016-11 → 2026-10), Beauty of Joseon 139 points; the 124
+  `dashboard_ts` points were already covered. Total 1,276 rows (1,268 before the drop). Other tables were untouched.
+* Advice: avoid "Delete table" in the `smartbuy` schema; the free Supabase plan has no point-in-time restore.
+
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.
