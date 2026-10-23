@@ -10,7 +10,8 @@ Run by app.workers.discovery (GitHub Actions, every 6 hours). Per active product
      search for the product, verify each new page with
      product_match and: strong match -> added as a vendor source; partial -> 'pending' for an admin;
      none -> 'rejected' (not fetched again for discovery_recheck_rejected_days).
-  4. Lifecycle - anything discovered that has not been in stock for SELLER_INACTIVE_DAYS is deactivated
+  4. Lifecycle - anything discovered that has not been in stock for SELLER_INACTIVE_DAYS, and was checked again
+     after it was last in stock (so a machine that was switched off removes nothing), is deactivated
      (kept with its history, re-activated when it is seen in stock again). Registry sources from
      config/products.yaml are never deactivated automatically.
 
@@ -59,6 +60,7 @@ class DiscoveryDeps:
     fetcher_factory: Callable[[set[str]], SafeFetcher] = lambda hosts: SafeFetcher(hosts)
     browser_factory: Callable[[], BrowserRenderer | None] = lambda: BrowserRenderer()
     search_factory: Callable[[], BraveSearch | None] = search_client   # returns None when web search is off
+    marketplace: bool = True        # False = skip marketplace seller lists (cloud runs: Amazon/Myntra block data centres)
 
 
 @dataclass
@@ -113,7 +115,8 @@ async def discover_product(repo: Repository, product: dict, *, deps: DiscoveryDe
         job_id = repo.start_job("discovery")
         rep = ProductReport(product["id"])
         try:
-            await _marketplace_sellers(repo, product, deps, rep)
+            if deps.marketplace:
+                await _marketplace_sellers(repo, product, deps, rep)
             await _recheck_discovered(repo, product, deps, rep)
             await _web_search(repo, product, deps, rep)
         except Exception as e:  # noqa: BLE001 - recorded; one product must not stop the others

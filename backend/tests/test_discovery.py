@@ -185,6 +185,24 @@ def test_marketplace_sellers_stored_and_expire_after_30_days(repo):
 
 
 @pytest.mark.db
+def test_missed_checks_never_remove_sellers(repo):
+    """Worker switched off / marketplace blocking us: no new reading of the page -> nothing is deactivated."""
+    product = _setup(repo)
+    panel = amazon_panel(_offer("aod-pinned-offer", 0, "AFEATURED1", "Featured Seller", "499.00"))
+    asyncio.run(ds.discover_product(repo, product, deps=_deps(FakeFetcher(), FakeBrowser(html=panel))))
+    with repo.db.connection() as c:       # last successful read of the page was when the seller was last in stock
+        c.execute("update vendor_sellers set last_in_stock_at = now() - interval '40 days', first_seen_at = now() - interval '40 days'")
+        c.execute("""update product_vendor_sources vs set last_checked_at = s.last_in_stock_at
+                     from vendor_sellers s where s.vendor_source_id = vs.id""")
+    blocked = ds.DiscoveryDeps(fetcher_factory=lambda h: FakeFetcher(), browser_factory=lambda: FakeBrowser(html="<html>captcha</html>"),
+                               search_factory=lambda: None)
+    asyncio.run(ds.discover_product(repo, product, deps=blocked))                    # blocked: page not read
+    asyncio.run(ds.discover_product(repo, product, deps=ds.DiscoveryDeps(marketplace=False, search_factory=lambda: None)))
+    assert repo.deactivate_not_selling(30)["sellers"] == []
+    assert [s["seller_name"] for s in repo.list_sellers("test-product")] == ["Featured Seller"]
+
+
+@pytest.mark.db
 def test_web_search_adds_verified_shops_queues_unclear_and_rejects_mismatches(repo):
     product = _setup(repo)
     good, other_size, unclear = "https://good.example/glow-50", "https://other.example/glow-100", "https://unclear.example/glow"

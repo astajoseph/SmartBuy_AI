@@ -1,8 +1,9 @@
 # Seller discovery for SmartBuy AI (runs in GitHub's cloud). Every 6 hours:
-#   * lists every seller on the registered Amazon / Myntra pages (sub-sellers come and go)
 #   * re-checks the vendor websites discovery added earlier
 #   * searches the web for new shops selling each product (only when BRAVE_SEARCH_API_KEY is set)
 #   * switches off discovered sellers / sites not in stock for 30 days (SELLER_INACTIVE_DAYS)
+# Amazon / Myntra seller lists are NOT read here (--no-marketplace): both block GitHub's data-centre addresses.
+# They are read from the owner's machine by scripts/run_discovery_local.sh (crontab, every 6 h).
 # Required repository secret: SMARTBUY_DATABASE_URL. Optional: BRAVE_SEARCH_API_KEY.
 # Migration 20261024000001_seller_discovery.sql must be applied first (python scripts/migrate.py).
 name: smartbuy-discover
@@ -43,4 +44,4 @@ jobs:
           BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
           LLM_PROVIDER: none
           PRODUCT_ID: ${{ inputs.product }}
-        run: python -m app.workers.discovery ${PRODUCT_ID:+--product "$PRODUCT_ID"}
+        run: python -m app.workers.discovery --no-marketplace ${PRODUCT_ID:+--product "$PRODUCT_ID"}

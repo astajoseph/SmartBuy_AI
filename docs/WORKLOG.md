@@ -358,5 +358,13 @@ the views `v_price_points` and `v_daily_price`, which broke product pages and hi
 * To delete one product's data in future: `delete from smartbuy.products where id = '<product_id>';` in the SQL
   Editor (its sources, prices, forecasts and jobs go with it), and remove it from `config/products.yaml`.
 
+**Split between cloud and this machine:**
+* GitHub workflow `smartbuy-discover` now runs with `--no-marketplace`: web search + re-check of discovered shops.
+* This machine's crontab runs `scripts/run_discovery_local.sh` at :13 every 6 hours (`--no-search`, so no Brave
+  queries): Amazon / Myntra seller lists. Log: `logs/discovery-local.log` (git-ignored). Runs only while the computer is on.
+* Safety rule: a seller / shop is deactivated only if its page was read again **after** it was last in stock, so time
+  when this machine is off (or a marketplace blocks us) never removes anyone. Test `test_missed_checks_never_remove_sellers`;
+  180 tests pass.
+
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.

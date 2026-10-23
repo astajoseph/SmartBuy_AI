@@ -49,6 +49,11 @@ It needs the same `SMARTBUY_DATABASE_URL` secret, plus **`BRAVE_SEARCH_API_KEY`*
 × 4 runs/day ≈ 600–700 Actions minutes per month; 2 Brave queries per product per run ≈ 240 per product per month.
 Apply migration `20261024000001_seller_discovery.sql` (`python scripts/migrate.py`) before the first run.
 
+The workflow runs with `--no-marketplace`: Amazon and Myntra block GitHub's data-centre addresses, so their seller
+lists are read from a home machine instead — `scripts/run_discovery_local.sh` in crontab
+(`13 */6 * * * /path/to/SmartBuy_AI/scripts/run_discovery_local.sh`), which uses `--no-search` (no Brave queries).
+Sellers are deactivated only after their page has been read again, so the home machine being off removes nobody.
+
 ### Option B — persistent worker
 
 Any container host that keeps a process running (Railway, Render background worker, Fly.io machine,

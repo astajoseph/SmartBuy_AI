@@ -479,16 +479,23 @@ class Repository:
                          (seller_id, limit))
 
     def deactivate_not_selling(self, days: float, now: datetime | None = None) -> dict:
-        """Discovered sellers / sources with nothing in stock for `days` are switched off (kept, never deleted)."""
+        """Discovered sellers / sources with nothing in stock for `days` are switched off (kept, never deleted) - but
+        only when their page was read again AFTER they were last in stock, so missed checks (worker offline,
+        marketplace blocking us) never count as 'stopped selling'."""
         params = {"cut": (now or _now()) - timedelta(days=days), "why": f"not in stock for {days:g} days"}
         with self.db.connection() as conn:
             sellers = conn.execute(
-                """update vendor_sellers set is_active = false, deactivated_at = now(), deactivation_reason = %(why)s
-                   where is_active and coalesce(last_in_stock_at, first_seen_at) < %(cut)s returning id, product_id""",
+                """update vendor_sellers s set is_active = false, deactivated_at = now(), deactivation_reason = %(why)s
+                   from product_vendor_sources vs
+                   where vs.id = s.vendor_source_id and s.is_active
+                     and coalesce(s.last_in_stock_at, s.first_seen_at) < %(cut)s
+                     and vs.last_checked_at > coalesce(s.last_in_stock_at, s.first_seen_at)
+                   returning s.id, s.product_id""",
                 params).fetchall()
             sources = conn.execute(
                 """update product_vendor_sources set is_active = false, deactivated_at = now(), deactivation_reason = %(why)s
                    where is_active and origin <> 'registry' and coalesce(last_in_stock_at, first_seen_at) < %(cut)s
+                     and last_checked_at > coalesce(last_in_stock_at, first_seen_at)
                    returning id, product_id, source_url""", params).fetchall()
         return {"sellers": sellers, "sources": sources}
 

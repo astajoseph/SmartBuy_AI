@@ -19,3 +19,4 @@ exports/
 *.pptx
 *.odp
 docs/*.txt
+logs/
