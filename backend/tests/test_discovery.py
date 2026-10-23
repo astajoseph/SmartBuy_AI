@@ -2,6 +2,7 @@
 All HTML is SYNTHETIC, shaped like the real pages inspected on 2026-10-24; no test touches a live site."""
 import asyncio
 import io
+import os
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -174,6 +175,7 @@ def test_real_ocr_reads_pack_size_from_an_image():
     """Runs the bundled open-source model on a SYNTHETIC label (white card, black text)."""
     from app.extraction import image_text
     if not image_text.available():
+        assert not os.environ.get("CI"), "OCR must work in CI (rapidocr_onnxruntime / OpenCV failed to load)"
         pytest.skip("rapidocr_onnxruntime not installed")
     from PIL import Image, ImageDraw, ImageFont
     im = Image.new("RGB", (900, 360), "white")

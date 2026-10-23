@@ -76,7 +76,7 @@ Notes from the inspection:
 
 ## Text on product images (seller discovery)
 
-`extraction/image_text.py` reads text printed on product photos with **RapidOCR** (`rapidocr_onnxruntime` 1.3.24,
+`extraction/image_text.py` reads text printed on product photos with **RapidOCR** (`rapidocr_onnxruntime` 1.4.4 — 1.3.x pins numpy < 2 and cannot be installed with this project —
 Apache-2.0: PaddleOCR detection + recognition models converted to ONNX and bundled in the wheel, ~15 MB, CPU only,
 ~1–2 s per image, no network at run time). Used only when a candidate shop page's text has no pack size. Images
 come from the page's own JSON-LD `image`; each is fetched through `SafeFetcher` with only the page host and that

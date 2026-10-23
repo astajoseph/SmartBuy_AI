@@ -3,7 +3,7 @@
 Used by seller discovery only when a shop page's text leaves out a detail the product match needs - e.g. a listing
 whose title has no pack size while the photo of the tube says "20 g".
 
-Model: RapidOCR (rapidocr_onnxruntime, Apache-2.0) - PaddleOCR's text detection + recognition models converted to
+Model: RapidOCR (rapidocr_onnxruntime 1.4.4, Apache-2.0) - PaddleOCR's text detection + recognition models converted to
 ONNX, bundled in the wheel (~15 MB), CPU only, about 1-2 s per image. No GPU, no PyTorch, no network at run time.
 If the package is missing, reading is skipped and the match simply stays unconfirmed.
 """
