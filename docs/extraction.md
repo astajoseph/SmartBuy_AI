@@ -74,6 +74,17 @@ Notes from the inspection:
 | `myntra.extract_sellers` | same embedded `pdpData` as the product page | `sellers[]` + `sizes[].sizeSellerData` (price, units per seller) |
 | `nykaa` | — | no seller list on the page (one seller); Nykaa Man still answers 403 to this network |
 
+## Text on product images (seller discovery)
+
+`extraction/image_text.py` reads text printed on product photos with **RapidOCR** (`rapidocr_onnxruntime` 1.3.24,
+Apache-2.0: PaddleOCR detection + recognition models converted to ONNX and bundled in the wheel, ~15 MB, CPU only,
+~1–2 s per image, no network at run time). Used only when a candidate shop page's text has no pack size. Images
+come from the page's own JSON-LD `image`; each is fetched through `SafeFetcher` with only the page host and that
+image host allowed (public addresses, 5 MB limit, robots.txt), checked with Pillow (no non-images, no images over
+16 MP) and read until a size is found (`DISCOVERY_MAX_IMAGES`, default 3; `DISCOVERY_READ_IMAGES=false` turns it off).
+OCR digit fix: a letter O next to a unit is read as zero ("2Og" → "20g"). Live check 2026-10-24: Flipkart's Olay
+listing has no size in its text; the first image reads "… SPF15 20g 20g" → rejected as a different pack size.
+
 ## Validation rules
 
 * Prices: positive, finite, ≤ ₹10 crore; `₹`, `Rs.`, commas and Indian grouping handled.

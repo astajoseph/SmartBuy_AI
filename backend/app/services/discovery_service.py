@@ -31,12 +31,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 from app.config import get_settings
 from app.database.repositories import LOCK_NAMESPACE_DISCOVERY, Repository
-from app.extraction.base import ExtractionContext
+from app.extraction import image_text
+from app.extraction.base import ExtractionContext, ExtractionResult
 from app.extraction.browser import BrowserRenderer
 from app.extraction.registry import resolve_adapter
 from app.security.url_validation import SafeFetcher, UnsafeURLError, host_matches_allowlist, validate_url_syntax
 from app.services import vendor_service
-from app.services.product_match import match_product
+from app.services.product_match import match_product, sizes
 from app.services.web_search import BraveSearch, SearchError, queries_for, search_client
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class DiscoveryDeps:
     browser_factory: Callable[[], BrowserRenderer | None] = lambda: BrowserRenderer()
     search_factory: Callable[[], BraveSearch | None] = search_client   # returns None when web search is off
     marketplace: bool = True        # False = skip marketplace seller lists (cloud runs: Amazon/Myntra block data centres)
+    image_reader: Callable[[bytes], str | None] = image_text.read_text   # OCR for product images
 
 
 @dataclass
@@ -241,10 +243,17 @@ async def _verify(repo: Repository, product: dict, cand: dict, deps: DiscoveryDe
         return {"url": url, "status": "error", "error": msg}
 
     m = match_product(product, result, price_range=rng, extra_text=title or "")
+    img = None
+    if m.level == "partial" and m.evidence.get("sizes_expected") and not m.evidence.get("sizes_on_page"):
+        img = await _read_images(result, host, deps)        # the title has no pack size: look at the product photos
+        if img and img["text"]:
+            m = match_product(product, result, price_range=rng, extra_text=title or "", image_text=img["text"])
     price = result.vendor.get("price")
     stock = in_stock(result.vendor.get("availability"), price)
     evidence = {**m.evidence, "reasons": m.reasons, "availability": result.vendor.get("availability"),
                 "adapter": adapter.name, "warnings": result.warnings[:5]}
+    if img:
+        evidence["images"] = {"read": img["read"], "text_excerpt": (img["text"] or "")[:300] or None}
     fields = {"match_level": m.level, "match_evidence": evidence, "observed_price": price, "last_checked_at": now,
               "error_message": None}
     if m.level == "strong" and stock:
@@ -264,6 +273,33 @@ async def _verify(repo: Repository, product: dict, cand: dict, deps: DiscoveryDe
         status = "pending" if m.level in ("strong", "partial") else "rejected"   # new page, unclear or out of stock
     repo.update_candidate(cand["id"], status=status, **fields)
     return {"url": url, "status": status, "reasons": m.reasons, "price": str(price) if price else None}
+
+
+async def _read_images(result: ExtractionResult, page_host: str, deps: DiscoveryDeps) -> dict | None:
+    """OCR the first product images the page itself lists (structured data). Each image is fetched through
+    SafeFetcher (public addresses only, size limit, robots.txt); the image host is allowed for that fetch only."""
+    s = get_settings()
+    urls = (result.product.get("images") or [])[: s.discovery_max_images]
+    if not s.discovery_read_images or not urls:
+        return None
+    texts, read = [], 0
+    for url in urls:
+        try:
+            img_host = urlsplit(url).hostname or ""
+            res = await deps.fetcher_factory({page_host, img_host}).fetch(url)
+        except Exception as e:  # noqa: BLE001
+            log.info("product image %s not fetched: %s", url[:120], e.__class__.__name__)
+            continue
+        ctype = res.headers.get("content-type", "")
+        if ctype and not ctype.startswith("image/"):
+            continue
+        text = deps.image_reader(res.content)
+        read += 1
+        if text:
+            texts.append(text)
+            if sizes(text):
+                break                                     # a pack size was found; no need to read more
+    return {"read": read, "text": " | ".join(texts) or None}
 
 
 def approve_candidate(repo: Repository, candidate_id: int, decided_by: str) -> dict:

@@ -37,7 +37,10 @@ The price-history collector still never touches vendor pages. A separate worker 
    and checked by `services/product_match.py`:
    * **strong** (registered product code on the page, or brand + pack size + ≥ 60 % of the name words + a price
      between 60 % of the lowest seen and 150 % of the MRP) and in stock → added as a vendor source automatically;
-   * **partial** (nothing contradicts it, proof incomplete) → `pending` in the admin console;
+   * **partial** (nothing contradicts it, proof incomplete) → `pending` in the admin console. When the missing
+     piece is the pack size, up to 3 product images listed in the page's structured data are read with an
+     open-source OCR model (`extraction/image_text.py`, RapidOCR / PaddleOCR models in ONNX, CPU) and the match is
+     decided again with the size printed on the pack — a different size rejects the page;
    * **none** (other size / brand / product, implausible price, no product data) → `rejected`, not re-fetched for 14 days.
 4. **Lifecycle.** Each check that sees a seller / shop in stock moves `last_in_stock_at`. Discovered sellers and
    shops not in stock for `SELLER_INACTIVE_DAYS` (30) are deactivated — never deleted — and re-activated when seen

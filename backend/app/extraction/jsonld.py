@@ -67,6 +67,18 @@ def name_of(value: Any) -> str | None:
     return None
 
 
+def images_of(product: dict) -> list[str]:
+    """Product image URLs: "image" may be a string, a list, or ImageObject(s) with "url" / "contentUrl"."""
+    raw = product.get("image")
+    items = raw if isinstance(raw, list) else [raw]
+    out = []
+    for it in items:
+        url = it.get("url") or it.get("contentUrl") if isinstance(it, dict) else it
+        if isinstance(url, str) and url.startswith(("http://", "https://")) and url not in out:
+            out.append(url)
+    return out
+
+
 def availability_of(offer: dict) -> str | None:
     a = offer.get("availability")
     if not a:

@@ -52,10 +52,12 @@ def product_codes(product: dict) -> set[str]:
 
 
 def match_product(product: dict, result: ExtractionResult, *, price_range: tuple[Decimal, Decimal] | None = None,
-                  extra_text: str = "") -> Match:
+                  extra_text: str = "", image_text: str | None = None) -> Match:
     """product: products row. result: a vendor adapter's extraction of the candidate page.
     price_range: (lowest plausible, highest plausible) from this product's own price history.
-    extra_text: the search result title, used only as a fallback when the page shows no product name."""
+    extra_text: the search result title, used only as a fallback when the page shows no product name.
+    image_text: text read from the product images (image_text.read_text); used for the pack size when the
+    page's text does not state one."""
     page_name = result.product.get("name") or ""
     page_brand = result.product.get("brand") or ""
     page_code = str(result.product.get("product_code") or "").upper()
@@ -79,8 +81,14 @@ def match_product(product: dict, result: ExtractionResult, *, price_range: tuple
     got_sizes = sizes(name_for_words)
     ev["sizes_expected"] = sorted(f"{v:f} {u}" for u, v in want_sizes) or None
     ev["sizes_on_page"] = sorted(f"{v:f} {u}" for u, v in got_sizes) or None
+    where = "on the page"
+    if want_sizes and not got_sizes and image_text:
+        got_sizes = sizes(image_text)
+        ev["sizes_on_image"] = sorted(f"{v:f} {u}" for u, v in got_sizes) or None
+        where = "on the product image"
     if want_sizes and got_sizes and not (want_sizes & got_sizes):
-        m.level, m.reasons = "none", [f"different pack size ({', '.join(ev['sizes_on_page'])})"]
+        shown = ", ".join(sorted(f"{v:f} {u}" for u, v in got_sizes))
+        m.level, m.reasons = "none", [f"different pack size ({shown} {where})"]
         return m
 
     brand = (product.get("brand") or "").lower()
@@ -109,7 +117,8 @@ def match_product(product: dict, result: ExtractionResult, *, price_range: tuple
     if hit and price_ok is not False:
         m.level, m.reasons = "strong", [f"product code {hit[0]} on the page"]
     elif brand_ok and want_sizes & got_sizes and share >= NAME_WORDS_STRONG and price is not None and price_ok is not False:
-        m.level, m.reasons = "strong", ["brand, pack size and product name match, price plausible"]
+        m.level, m.reasons = "strong", ["brand, pack size and product name match, price plausible"
+                                        + (" (pack size read from the product image)" if where != "on the page" else "")]
     elif share < NAME_WORDS_PARTIAL and not hit:
         m.level, m.reasons = "none", [f"product name does not match (only {share:.0%} of its words)"]
     else:

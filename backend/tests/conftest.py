@@ -105,7 +105,7 @@ class FakeFetcher:
         if p is None:
             from app.security.url_validation import FetchError
             raise FetchError("HTTP 404", status=404)
-        return FetchResult(url=url, final_url=url, status=p.status, headers={}, text=p.text)
+        return FetchResult(url=url, final_url=url, status=p.status, headers={}, text=p.text, content=p.text.encode())
 
     async def robots_allowed(self, url) -> bool:
         return True

@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_PORTS = {"http": 80, "https": 443}
 _METADATA_HOSTS = {"metadata.google.internal", "metadata", "instance-data"}
+_NAT64 = ipaddress.IPv6Network("64:ff9b::/96")      # RFC 6052 well-known prefix (DNS64 / NAT64 networks)
 
 
 class UnsafeURLError(ValueError):
@@ -87,6 +88,8 @@ def is_public_ip(ip: str) -> bool:
         return False
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
         addr = addr.ipv4_mapped
+    elif isinstance(addr, ipaddress.IPv6Address) and addr in _NAT64:
+        addr = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)   # DNS64 answer: judge the IPv4 address it translates to
     return addr.is_global and not (
         addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast
         or addr.is_reserved or addr.is_unspecified
@@ -132,6 +135,7 @@ class FetchResult:
     headers: dict[str, str]
     text: str
     fetched_at: float = field(default_factory=time.time)
+    content: bytes = b""             # raw body (images); `text` is the same body decoded
     elapsed_seconds: float = 0.0
 
 
@@ -257,7 +261,7 @@ class SafeFetcher:
                 return FetchResult(
                     url=url, final_url=str(parsed), status=resp.status_code,
                     headers={k.lower(): v for k, v in resp.headers.items()},
-                    text=resp.content.decode(resp.encoding or "utf-8", errors="replace"),
+                    text=resp.content.decode(resp.encoding or "utf-8", errors="replace"), content=resp.content,
                     elapsed_seconds=time.monotonic() - started,
                 )
         raise FetchError("Too many redirects")

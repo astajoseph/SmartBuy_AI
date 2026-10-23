@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     discovery_max_checks_per_product: int = Field(default=8, ge=0)  # new candidate pages verified per product per run
     discovery_recheck_rejected_days: float = 14      # a rejected page is not fetched again before this
     discovery_blocked_hosts: str = ""                # comma separated, in addition to the built-in non-shop list
+    discovery_read_images: bool = True               # OCR the product images when the page text has no pack size
+    discovery_max_images: int = Field(default=3, ge=0, le=10)       # images read per candidate page
 
     @property
     def cors_origin_list(self) -> list[str]:

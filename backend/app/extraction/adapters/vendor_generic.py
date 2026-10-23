@@ -52,7 +52,7 @@ class VendorGenericAdapter(Adapter):
         if prods:
             p = prods[0]
             result.product.update({"name": p.get("name"), "brand": jsonld.name_of(p.get("brand")),
-                                   "product_code": p.get("sku") or p.get("mpn")})
+                                   "product_code": p.get("sku") or p.get("mpn"), "images": jsonld.images_of(p) or None})
             offers = jsonld.offers_of(p)
             if offers:
                 o = offers[0]

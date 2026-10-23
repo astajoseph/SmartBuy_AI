@@ -366,5 +366,14 @@ the views `v_price_points` and `v_daily_price`, which broke product pages and hi
   when this machine is off (or a marketplace blocks us) never removes anyone. Test `test_missed_checks_never_remove_sellers`;
   180 tests pass.
 
+**Pack size from product images:** the approved Flipkart listing turned out to be a **20 g** pack (only visible on
+the product photo). Rejected it (source deactivated). Added OCR of product images when the page text has no pack size:
+`extraction/image_text.py` (RapidOCR, open-source ONNX models, CPU; `rapidocr_onnxruntime==1.3.24` in requirements),
+`product_match(image_text=…)`, `discovery_service._read_images`. Live dry run: Flipkart → "different pack size (20 g on
+the product image)", so it would now be rejected automatically.
+**Also fixed:** this machine's DNS returns NAT64 addresses (`64:ff9b::/96`); the SSRF check treated them as non-public
+and refused Apollo Pharmacy and Flipkart's image CDN. NAT64 answers are now judged by the IPv4 address they embed
+(private / loopback / metadata addresses stay blocked; test added). 188 tests pass.
+
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.

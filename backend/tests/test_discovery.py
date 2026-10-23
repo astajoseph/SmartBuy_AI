@@ -1,6 +1,8 @@
 """Seller discovery: marketplace sub-sellers, web-search candidates, verification and the 30-day lifecycle.
 All HTML is SYNTHETIC, shaped like the real pages inspected on 2026-10-24; no test touches a live site."""
 import asyncio
+import io
+import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -35,8 +37,10 @@ def amazon_panel(*offers, total=None):
             f'<input id="aod-total-offer-count" value="{total if total is not None else len(offers) - 1}"></div></body></html>')
 
 
-def shop_page(name, price, *, brand="TestBrand", availability="InStock", code=None):
+def shop_page(name, price, *, brand="TestBrand", availability="InStock", code=None, images=()):
     sku = f',"sku":"{code}"' if code else ""
+    if images:
+        sku += ',"image":' + json.dumps(list(images))
     return f"""<html><head><script type="application/ld+json">
 {{"@context":"https://schema.org","@type":"Product","name":"{name}","brand":{{"@type":"Brand","name":"{brand}"}}{sku},
  "offers":{{"@type":"Offer","price":"{price}","priceCurrency":"INR","availability":"https://schema.org/{availability}"}}}}
@@ -142,6 +146,47 @@ def test_brave_client_sends_key_and_strips_markup():
         asyncio.run(BraveSearch("k", transport=httpx.MockTransport(lambda r: httpx.Response(429))).search("x"))
 
 
+def test_jsonld_images_in_every_shape():
+    from app.extraction.jsonld import images_of
+    assert images_of({"image": "https://i.example/a.jpg"}) == ["https://i.example/a.jpg"]
+    assert images_of({"image": [{"@type": "ImageObject", "url": "https://i.example/a.jpg"}, "https://i.example/a.jpg",
+                                {"contentUrl": "https://i.example/b.jpg"}, "data:x", None]}) == ["https://i.example/a.jpg", "https://i.example/b.jpg"]
+    assert images_of({}) == []
+
+
+@pytest.mark.parametrize("image_text, level, reason", [
+    ("OLAY TOTAL EFFECTS DAY CREAM SPF15 20g", "none", "different pack size (20 g on the product image)"),
+    ("Glow Day Cream NET WT. 50 g", "strong", "brand, pack size and product name match, price plausible (pack size read from the product image)"),
+    ("Hydrates skin, fights 7 signs", "partial", "unconfirmed: pack size"),
+])
+def test_pack_size_from_image_text(image_text, level, reason):
+    r = _result(name="TestBrand Glow Day Cream SPF 15", brand="TestBrand", price=520)
+    m = match_product(PRODUCT, r, price_range=(Decimal("300"), Decimal("1500")), image_text=image_text)
+    assert (m.level, m.reasons) == (level, [reason])
+
+
+def test_page_size_wins_over_image_text():
+    r = _result(name="TestBrand Glow Day Cream SPF 15, 50 g", brand="TestBrand", price=520)
+    assert match_product(PRODUCT, r, price_range=(Decimal("300"), Decimal("1500")), image_text="20 g").level == "strong"
+
+
+def test_real_ocr_reads_pack_size_from_an_image():
+    """Runs the bundled open-source model on a SYNTHETIC label (white card, black text)."""
+    from app.extraction import image_text
+    if not image_text.available():
+        pytest.skip("rapidocr_onnxruntime not installed")
+    from PIL import Image, ImageDraw, ImageFont
+    im = Image.new("RGB", (900, 360), "white")
+    d = ImageDraw.Draw(im)
+    font = ImageFont.load_default(size=64)
+    d.text((40, 60), "DAY CREAM SPF15", fill="black", font=font)
+    d.text((40, 200), "NET WT. 20g", fill="black", font=font)
+    buf = io.BytesIO(); im.save(buf, "JPEG")
+    text = image_text.read_text(buf.getvalue())
+    assert text and sizes(text) == {("g", Decimal("20"))}, text
+    assert image_text.read_text(b"<html>not an image</html>") is None
+
+
 # ------------------------------------------------------------------ database
 
 
@@ -223,7 +268,7 @@ def test_web_search_adds_verified_shops_queues_unclear_and_rejects_mismatches(re
     assert [v["source_url"] for v in added] == [good] and added[0]["last_in_stock_at"] is not None
     assert added[0]["adapter_name"] == "vendor_generic" and "good.example" in repo.registered_hosts()
     cand = repo.list_candidates(status="rejected")[0]
-    assert cand["match_evidence"]["reasons"] == ["different pack size (100 g)"]
+    assert cand["match_evidence"]["reasons"] == ["different pack size (100 g on the page)"]
 
     # next run: the added shop is re-checked through vendor_service; rejected / pending pages are not re-fetched
     fetcher.requested.clear()
@@ -271,6 +316,34 @@ def test_brave_monthly_limit_is_never_exceeded(repo, monkeypatch):
         assert repo.reserve_search_queries("brave", 1, 3, now=datetime.now(timezone.utc) + timedelta(days=32))
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.db
+def test_product_images_decide_when_the_page_has_no_pack_size(repo):
+    product = _setup(repo)
+    small, right = "https://small.example/glow", "https://right.example/glow"
+    pages = {small: FakePage(200, shop_page("TestBrand Glow Day Cream SPF 15", 422, images=["https://cdn.small.example/1.jpg"])),
+             right: FakePage(200, shop_page("TestBrand Glow Day Cream SPF 15", 549,
+                                            images=["https://img.right.example/back.jpg", "https://img.right.example/front.jpg"])),
+             "https://cdn.small.example/1.jpg": FakePage(200, "IMG OLAY 20g"),
+             "https://img.right.example/back.jpg": FakePage(200, "IMG ingredients only"),
+             "https://img.right.example/front.jpg": FakePage(200, "IMG NET WT 50 g")}
+    fetcher = FakeFetcher(pages)
+    allowed = []
+
+    def factory(hosts):
+        allowed.append(set(hosts))
+        return fetcher
+
+    deps = ds.DiscoveryDeps(fetcher_factory=factory, browser_factory=lambda: None, marketplace=False,
+                            search_factory=lambda: FakeSearch([(small, "Glow"), (right, "Glow")]),
+                            image_reader=lambda b: b.decode().removeprefix("IMG "))
+    rep = asyncio.run(ds.discover_product(repo, product, deps=deps))
+    assert {c["url"]: c["status"] for c in rep["candidates"]} == {small: "rejected", right: "auto_added"}
+    assert {"small.example", "cdn.small.example"} in allowed               # image host allowed for that fetch only
+    c = {x["url"]: x for x in repo.list_candidates()}
+    assert c[small]["match_evidence"]["reasons"] == ["different pack size (20 g on the product image)"]
+    assert c[right]["match_evidence"]["images"] == {"read": 2, "text_excerpt": "ingredients only | NET WT 50 g"}
 
 
 @pytest.mark.db

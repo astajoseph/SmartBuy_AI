@@ -138,3 +138,11 @@ def test_admin_disabled_when_token_unset(monkeypatch):
     monkeypatch.setattr(get_settings(), "admin_api_token", None)
     assert TestClient(app).get("/api/admin/jobs", headers={"Authorization": "Bearer "}).status_code in (401, 403)
     assert TestClient(app).get("/api/admin/jobs", headers={"Authorization": "Bearer anything"}).status_code == 403
+
+
+def test_nat64_addresses_are_judged_by_their_embedded_ipv4():
+    from app.security.url_validation import is_public_ip
+    assert is_public_ip("64:ff9b::23c9:5424")              # 35.201.84.36 via DNS64
+    assert not is_public_ip("64:ff9b::7f00:1")             # 127.0.0.1
+    assert not is_public_ip("64:ff9b::a00:1")              # 10.0.0.1
+    assert not is_public_ip("64:ff9b::a9fe:a9fe")          # 169.254.169.254 (cloud metadata)
