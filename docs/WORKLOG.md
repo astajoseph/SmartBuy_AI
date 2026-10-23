@@ -333,6 +333,13 @@ Also today: "Supabase shows no tables" — the data was there all along; every t
 Supabase Table Editor opens on `public`. Switch the schema dropdown to `smartbuy`, or query `smartbuy.<table>` in the
 SQL Editor. Each GitHub collection run had written its rows (e.g. job #29, 2026-10-23 17:04 UTC, 5 rows).
 
+**First cloud run (workflow `smartbuy-discover`, 2026-10-24):** success. Web search worked: apollopharmacy.in verified
+and added automatically (₹901.80), flipkart.com waiting for review (pack size not on the page); jiomart / bigbasket /
+tira / dmart / looknstyle could not be read or blocked automated access. **But from GitHub's servers Amazon served a
+bot-check page and Myntra a page without its product data**, so marketplace sub-sellers are not collected in the
+cloud (not bypassed, by design). Run from this machine they work: 20 sellers stored (19 Amazon, 1 Myntra, ₹479–₹989).
+Brave usage so far: 3 queries this month (limit 800).
+
 **Incident — price-history table dropped (found and repaired 2026-10-24).** The first manual run of
 `smartbuy-discover` failed with `relation "v_price_points" does not exist`. Supabase's statement log
 (`pg_stat_statements`) shows `DROP TABLE smartbuy.historical_price_points CASCADE` run once by role `postgres` — the
