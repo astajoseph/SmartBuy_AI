@@ -342,14 +342,21 @@ Brave usage so far: 3 queries this month (limit 800).
 
 **Incident — price-history table dropped (found and repaired 2026-10-24).** The first manual run of
 `smartbuy-discover` failed with `relation "v_price_points" does not exist`. Supabase's statement log
-(`pg_stat_statements`) shows `DROP TABLE smartbuy.historical_price_points CASCADE` run once by role `postgres` — the
-form the Supabase Table Editor's "Delete table" (cascade) produces; it is not in this code base. The cascade also removed
+(`pg_stat_statements`) shows `DROP TABLE smartbuy.historical_price_points CASCADE` run once by role `postgres` from the
+Supabase Table Editor: the intention was to delete only the Beauty of Joseon rows, but "Delete table" removes the whole
+table (all products). The cascade also removed
 the views `v_price_points` and `v_daily_price`, which broke product pages and history. Repair:
 * migration `20261024000002_restore_price_history.sql` (idempotent; definitions copied from the init migration) —
   applied to Supabase;
 * history rebuilt from the sources: Olay 1,149 points (chart 2016-11 → 2026-10), Beauty of Joseon 139 points; the 124
   `dashboard_ts` points were already covered. Total 1,276 rows (1,268 before the drop). Other tables were untouched.
 * Advice: avoid "Delete table" in the `smartbuy` schema; the free Supabase plan has no point-in-time restore.
+* **Beauty of Joseon removed (as intended):** product `boj-sunscreen-50ml` deleted with everything that cascades from it
+  (source, 132 history points, 4 observations, 10 stated stats, 3 forecasts, 2 jobs), the 4 sale events read from its
+  chart, and the whole `dashboard_ts` schema (old import, Beauty of Joseon only). Removed from `config/products.yaml`.
+  A JSON copy of every deleted row was saved locally before deleting. Olay untouched (1,144 history points).
+* To delete one product's data in future: `delete from smartbuy.products where id = '<product_id>';` in the SQL
+  Editor (its sources, prices, forecasts and jobs go with it), and remove it from `config/products.yaml`.
 
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.

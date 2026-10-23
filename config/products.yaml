@@ -40,20 +40,6 @@ products:
         adapter: nykaa
         expected_vendor_product_id: "261613"
 
-  # Replaced on 2026-10-16 (source history had a 777-day gap). Disabled, not deleted: its data stays in Supabase.
-  - product_id: boj-sunscreen-50ml
-    name: "Beauty of Joseon Relief Sun SPF 50 PA++++ (Rice + Probiotics), 50 ml"
-    brand: Beauty Of Joseon
-    category: beauty
-    currency: INR
-    enabled: false
-    price_source:
-      url: https://pricehistory.app/p/beauty-joseon-sunscreen-spf-50-pa-sun-qXOOmq2h
-      adapter: pricehistory_app
-      enabled: false
-      adapter_config: {respect_robots_for_subrequests: false, wait_seconds: 6}
-    vendors: []
-
   # PRODUCT 2 - waiting for URLs
   # - product_id: product-002
   #   name: "<name>"
