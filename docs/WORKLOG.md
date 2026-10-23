@@ -300,3 +300,38 @@ How:
   Live check against Supabase: health reports auth configured; protected endpoints return 401 without a valid token.
 * **Pending:** put the project's public anon key in `.env` (`SUPABASE_ANON_KEY`) and `frontend/.env.local`, and set
   the Auth Site URL / redirect URLs in the Supabase dashboard.
+
+## 2026-10-24 · Seller discovery (sub-sellers, new shops, 30-day removal)
+
+Asked for: find sub-vendors that appear on the vendor sites (and new websites selling the product), add them,
+and remove them when they stop selling after a fixed time. Decisions taken with you: **Brave Search** for new
+websites, **hybrid approval** (verified pages added automatically, unclear ones wait for an admin), removal after
+**30 days** without stock, checks **every 6 hours**.
+
+What it does (`services/discovery_service.py`, `workers/discovery.py`, workflow `smartbuy-discover.yml`):
+* Amazon: renders the "Other sellers on Amazon" panel and stores every seller with price, MRP, rating, fulfilment.
+  Live check: 19 sellers (₹479–₹989) for the Olay cream; Myntra: 1 seller (₹519).
+* Brave web search → candidate pages → deterministic product match (`services/product_match.py`): strong → vendor
+  source (`origin = web_search`), partial → admin queue, mismatch → rejected (with reasons).
+* Lifecycle: `last_in_stock_at` per seller / discovered shop; deactivated after `SELLER_INACTIVE_DAYS` (30),
+  re-activated when back in stock. Registry URLs are never deactivated automatically.
+* API: `GET /api/products/{id}/sellers` (DB only); admin `GET /api/admin/discovery/candidates`,
+  `POST …/{id}/approve|reject`, `POST /api/admin/discovery/run`. Frontend: "All sellers found" on the vendors page,
+  "Discovered shops" review table in admin → Operations.
+* Migration `20261024000001_seller_discovery.sql`. Tests: `tests/test_discovery.py` (20) — 178 pass.
+
+* **No card charges:** Brave's Search plan costs $5 per 1,000 requests with $5 free credit a month (≈ 1,000 queries).
+  New table `search_api_usage` counts every query **before** it is sent; at `BRAVE_MONTHLY_QUERY_LIMIT` (default 800)
+  web search pauses until next month (test `test_brave_monthly_limit_is_never_exceeded`). Expected use: 2 queries per
+  product per run × 4 runs/day ≈ 240 per product per month.
+* **Applied to Supabase:** migration `20261024000001_seller_discovery` (5 tables changed/added, all in schema `smartbuy`).
+* Secrets: `BRAVE_SEARCH_API_KEY` set on the repository (and in `.env`). One test query (3 results) succeeded and was
+  counted (1 / 800); it already returned a new shop to verify (apollopharmacy.in).
+* Tests: 179 pass.
+
+Also today: "Supabase shows no tables" — the data was there all along; every table is in schema **`smartbuy`**, while the
+Supabase Table Editor opens on `public`. Switch the schema dropdown to `smartbuy`, or query `smartbuy.<table>` in the
+SQL Editor. Each GitHub collection run had written its rows (e.g. job #29, 2026-10-23 17:04 UTC, 5 rows).
+
+**Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
+offers one); keep the limit at or below the free credit if Brave changes its pricing.

@@ -16,7 +16,7 @@ from app.extraction.registry import UnknownAdapter, resolve_adapter
 from app.api.assistant import message_out
 from app.security.permissions import CurrentUser, require_admin
 from app.security.url_validation import FetchError, RobotsDisallowed, SafeFetcher, UnsafeURLError, validate_url_syntax
-from app.services import vendor_service
+from app.services import discovery_service, vendor_service
 from app.services.alert_service import evaluate_product_alerts
 from app.services.event_service import sync_events
 from app.services.import_service import import_dashboard_ts
@@ -119,6 +119,43 @@ def cache_status(repo: Repository = Depends(get_repo)) -> list[dict]:
            from product_vendor_sources vs join vendors v on v.id = vs.vendor_id
            left join vendor_snapshots s on s.vendor_source_id = vs.id
            order by vs.id, s.fetched_at desc nulls last""")
+
+
+# ---------------------------------------------------------------- seller discovery
+@router.get("/api/admin/discovery/candidates", summary="Pages found by web search and what was decided about them")
+def discovery_candidates(status: str | None = Query(None, pattern="^(new|pending|auto_added|approved|rejected|error)$"),
+                         product_id: str | None = None, limit: int = Query(200, ge=1, le=1000),
+                         repo: Repository = Depends(get_repo)) -> list[dict]:
+    return repo.list_candidates(status=status, product_id=product_id, limit=limit)
+
+
+def _decider(admin: CurrentUser | None) -> str:
+    return (admin.email or str(admin.id)) if admin else "admin token"
+
+
+@router.post("/api/admin/discovery/candidates/{candidate_id}/approve", summary="Add a found page as a vendor source")
+def approve_candidate(candidate_id: int, repo: Repository = Depends(get_repo),
+                      admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    try:
+        return discovery_service.approve_candidate(repo, candidate_id, _decider(admin))
+    except LookupError:
+        raise HTTPException(404, "Candidate not found") from None
+
+
+@router.post("/api/admin/discovery/candidates/{candidate_id}/reject", summary="Reject a found page (and stop tracking it)")
+def reject_candidate(candidate_id: int, repo: Repository = Depends(get_repo),
+                     admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    try:
+        return discovery_service.reject_candidate(repo, candidate_id, _decider(admin))
+    except LookupError:
+        raise HTTPException(404, "Candidate not found") from None
+
+
+@router.post("/api/admin/discovery/run", summary="Run seller discovery now (can take a few minutes)")
+async def run_discovery(product_id: str | None = None, repo: Repository = Depends(get_repo)) -> dict:
+    if product_id and not repo.get_product(product_id):
+        raise HTTPException(404, "Product not found")
+    return await discovery_service.run_discovery(repo, product_id=product_id)
 
 
 # ---------------------------------------------------------------- users, activity and conversations

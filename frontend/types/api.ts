@@ -143,3 +143,15 @@ export interface ChatMessageRow {
   created_at: string;
 }
 export interface UserTarget { product_id: string; target_price: string | null; max_budget: string | null; alerts_enabled: boolean }
+
+// Seller discovery (GET /api/products/{id}/sellers, never fetches)
+export interface MarketplaceSeller {
+  id: number; seller_key: string; seller_name: string | null; seller_url: string | null; marketplace: string; marketplace_url: string;
+  is_active: boolean; first_seen_at: string; last_seen_at: string; last_in_stock_at: string | null; deactivation_reason: string | null;
+  observed_at: string | null; price: string | null; mrp: string | null; in_stock: boolean | null; fulfilled_by: string | null;
+  min_quantity: number | null; seller_rating: string | null; seller_rating_count: number | null; seller_positive_pct: string | null;
+}
+export interface SellerList {
+  product_id: string; sellers: MarketplaceSeller[]; last_checked_at: string | null;
+  discovered_sites: { id: number; vendor_name: string; source_url: string; origin: string; first_seen_at: string; last_checked_at: string | null; last_in_stock_at: string | null }[];
+}

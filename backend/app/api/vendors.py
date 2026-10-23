@@ -44,6 +44,18 @@ async def reviews(product_id: str, refresh: bool = False, repo: Repository = Dep
             "message": None if vds else "No vendor URLs are registered for this product yet."}
 
 
+@router.get("/api/products/{product_id}/sellers", summary="Marketplace sellers found by discovery (never fetches)")
+def sellers(product_id: str, include_inactive: bool = False, repo: Repository = Depends(get_repo)) -> dict:
+    if not repo.get_product(product_id):
+        raise HTTPException(404, "Product not found")
+    rows = repo.list_sellers(product_id, include_inactive=include_inactive)
+    discovered = [v for v in repo.list_vendor_sources(product_id) if v["origin"] != "registry"]
+    return {"product_id": product_id, "sellers": rows,
+            "discovered_sites": [{k: v[k] for k in ("id", "vendor_name", "source_url", "origin", "first_seen_at",
+                                                     "last_checked_at", "last_in_stock_at")} for v in discovered],
+            "last_checked_at": max((r["last_seen_at"] for r in rows), default=None)}
+
+
 @router.get("/api/vendors/{vendor_id}/offers", summary="Cached EMI offers for a vendor (never fetches)")
 def vendor_offers(vendor_id: str, repo: Repository = Depends(get_repo)) -> list[dict]:
     return repo._all(  # noqa: SLF001

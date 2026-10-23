@@ -22,7 +22,10 @@ All are `timestamptz` (UTC). Money is `numeric(12,2)` with `CHECK (price > 0)`; 
 | `products` | catalogue; `id` slug |
 | `vendors` | vendor names + domain |
 | `product_sources` | recurring sources (`price_history`); interval, adapter, `adapter_config`, health fields; unique `(product_id, source_url)` |
-| `product_vendor_sources` | vendor URLs per product (on-demand only); unique `(product_id, vendor_id, source_url)` |
+| `product_vendor_sources` | vendor URLs per product; unique `(product_id, vendor_id, source_url)`; `origin` = `registry` (products.yaml) / `web_search` / `admin_approved`; lifecycle `first_seen_at`, `last_checked_at`, `last_in_stock_at`, `deactivated_at`, `deactivation_reason` |
+| `vendor_sellers` | sellers listed on a marketplace vendor page; unique `(vendor_source_id, seller_key)` (Amazon merchant id, Myntra partner id); `is_active`, `last_seen_at`, `last_in_stock_at`, deactivation fields |
+| `vendor_seller_offers` | each seller's offer at each discovery check: price, MRP, in stock, condition, fulfilled by, minimum quantity, seller rating; unique `(seller_id, observed_at)` |
+| `discovery_candidates` | pages found by web search; `status` = `new` / `pending` / `auto_added` / `approved` / `rejected` / `error`, `match_level`, `match_evidence` (reasons, sizes, brand, name-word share, price check), linked `vendor_source_id` |
 | `source_extraction_tests` | results of URL inspections (fields found / missing) |
 | `price_observations` | our observations; unique `(source_id, price_type, observed_at)` |
 | `historical_price_points` | source history; unique `(product_id, source_id, price_type, historical_timestamp)`; `data_origin` = `source_chart_data` / `imported_dashboard_ts` / `imported_csv`; `confidence_or_quality` = `source_reported` / `estimated_from_chart` |
@@ -57,7 +60,7 @@ is ever exposed through PostgREST.
 
 ## Retention
 
-Nothing is deleted automatically. Suggested policy (not yet scheduled): keep all price data; prune
+Nothing is deleted automatically (discovered sellers and shops are deactivated, not deleted). Suggested policy (not yet scheduled): keep all price data; prune
 `vendor_snapshots`, `emi_offers` and `vendor_reviews` older than 90 days, and `collection_jobs.details`
 older than 30 days.
 

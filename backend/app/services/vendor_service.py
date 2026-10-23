@@ -3,7 +3,8 @@
 Vendor URLs are fetched ONLY here, ONLY when a caller explicitly needs vendor data (EMI / vendor
 comparison / review analysis), and ONLY when the cached snapshot for the needed kinds is missing
 or expired (or the user explicitly asks for a refresh). Dashboard and price-history endpoints
-never call this module.
+never call this module. The one scheduled caller is seller discovery (services/discovery_service.py),
+which re-checks the vendor pages IT added (refresh_vendor_source) to see whether they still sell.
 """
 from __future__ import annotations
 
@@ -60,6 +61,12 @@ async def get_vendor_data(repo: Repository, product_id: str, needs: tuple[str, .
     for vs in repo.list_vendor_sources(product_id):
         out.append(await _one_vendor(repo, vs, kinds, force_refresh, deps, now or datetime.now(timezone.utc)))
     return out
+
+
+async def refresh_vendor_source(repo: Repository, vs: dict, deps: VendorDeps | None = None) -> tuple[dict | None, str | None]:
+    """Fetch one vendor page now and cache its snapshot. Returns (snapshot, None) or (None, error)."""
+    snap_id, error = await _fetch_and_store(repo, vs, deps or VendorDeps())
+    return (repo.latest_ok_vendor_snapshot(vs["id"]) if snap_id else None), error
 
 
 async def _one_vendor(repo: Repository, vs: dict, kinds: tuple[str, ...], force: bool, deps: VendorDeps,

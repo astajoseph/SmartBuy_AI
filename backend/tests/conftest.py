@@ -107,6 +107,9 @@ class FakeFetcher:
             raise FetchError("HTTP 404", status=404)
         return FetchResult(url=url, final_url=url, status=p.status, headers={}, text=p.text)
 
+    async def robots_allowed(self, url) -> bool:
+        return True
+
     def robots_for(self, url):
         return None
 

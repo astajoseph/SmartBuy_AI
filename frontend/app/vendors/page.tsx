@@ -6,7 +6,7 @@ import { useApi } from "@/hooks/useApi";
 import { usePrefs } from "@/hooks/usePrefs";
 import { api } from "@/lib/api";
 import { dateTime, money } from "@/lib/format";
-import type { ProductSummary, VendorComparison } from "@/types/api";
+import type { ProductSummary, SellerList, VendorComparison } from "@/types/api";
 
 export default function VendorsPage() {
   const { data: products } = useApi<ProductSummary[]>("/api/products");
@@ -17,6 +17,8 @@ export default function VendorsPage() {
   const [data, setData] = useState<VendorComparison | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showGone, setShowGone] = useState(false);
+  const { data: sellers } = useApi<SellerList>(pid ? `/api/products/${pid}/sellers?include_inactive=${showGone}` : null);
 
   async function load(refresh = false) {
     if (!pid) return;
@@ -46,6 +48,28 @@ export default function VendorsPage() {
             <button className="btn-secondary" disabled={!pid || busy} onClick={() => load(true)} title="Fetch vendor pages again now">Refresh</button></div>
         </div>
       </Card>
+      {sellers && (sellers.sellers.length > 0 || sellers.discovered_sites.length > 0) && (
+        <Card title="All sellers found" actions={<label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={showGone} onChange={(e) => setShowGone(e.target.checked)} />show sellers that stopped</label>}>
+          <p className="mb-2 text-xs text-slate-500">Checked automatically every 6 hours{sellers.last_checked_at && <> (last {dateTime(sellers.last_checked_at)})</>}. A seller or site not in stock for 30 days is removed. Prices are as listed at that check.</p>
+          {sellers.sellers.length > 0 && <div className="overflow-x-auto"><table className="table">
+            <thead><tr><th>Seller</th><th>On</th><th>Price</th><th>Stock</th><th>Shipped by</th><th>Seller rating</th><th>First seen</th></tr></thead>
+            <tbody>{sellers.sellers.map((s) => (
+              <tr key={s.id} className={s.is_active ? "" : "text-slate-400"}>
+                <td className="font-medium">{s.seller_url ? <a className="underline" href={s.seller_url} target="_blank" rel="noreferrer">{s.seller_name ?? s.seller_key}</a> : (s.seller_name ?? s.seller_key)}
+                  {!s.is_active && <div className="text-[11px]">{s.deactivation_reason}</div>}</td>
+                <td className="text-xs">{s.marketplace}</td>
+                <td>{money(s.price)}{s.min_quantity && s.min_quantity > 1 && <div className="text-[11px] text-amber-700">min. {s.min_quantity} units</div>}</td>
+                <td className="text-xs">{s.in_stock ? "In stock" : s.in_stock === false ? "Not available" : "Unknown"}</td>
+                <td className="text-xs">{s.fulfilled_by ?? "—"}</td>
+                <td className="text-xs">{s.seller_rating ? `${s.seller_rating}/5 (${s.seller_rating_count ?? "?"})` : "—"}{s.seller_positive_pct && <div>{s.seller_positive_pct}% positive</div>}</td>
+                <td className="text-xs">{dateTime(s.first_seen_at)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>}
+          {sellers.discovered_sites.length > 0 && <div className="mt-3 text-sm"><div className="font-medium">Other shops found by web search</div>
+            <ul className="mt-1 space-y-1 text-xs">{sellers.discovered_sites.map((d) => <li key={d.id}><a className="text-brand-600 underline" href={d.source_url} target="_blank" rel="noreferrer">{d.vendor_name}</a> · last in stock {dateTime(d.last_in_stock_at)} · included in Compare</li>)}</ul></div>}
+        </Card>
+      )}
       {err && <Notice tone="error">{err}</Notice>}
       {busy && <Loading what="Checking cache and vendor pages" />}
       {data?.message && <Notice>{data.message}</Notice>}

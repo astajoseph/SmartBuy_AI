@@ -1,7 +1,8 @@
 """Headless-browser rendering (Playwright), used only when a page needs JavaScript.
 
 Every sub-request the page makes passes through a route guard: non-HTTP(S) schemes and any
-host resolving to a non-public address are aborted. Images, media and fonts are not loaded.
+host resolving to a non-public address are aborted. Media and fonts are not loaded; images only
+when a caller asks for them (render(load_images=True)).
 Captured JSON responses and chart objects are returned for the adapters to interpret with the
 vendored detector (timeseries_detect.CHART_JS).
 """
@@ -66,7 +67,11 @@ class BrowserRenderer:
         return True
 
     async def render(self, url: str, *, wait_seconds: float = 6.0, click_ranges: list[str] | None = None,
-                     capture_json_url: str | None = None) -> RenderResult:
+                     capture_json_url: str | None = None, wait_for_selector: str | None = None,
+                     scroll_selector: str | None = None, scroll_rounds: int = 0, load_images: bool = False) -> RenderResult:
+        """wait_for_selector: also wait (up to 20 s) for this element. scroll_selector / scroll_rounds: scroll that
+        element to its end this many times (1.5 s apart) so lists that load more entries on scroll fill in.
+        load_images: let images load (some pages only open panels after their assets load); still address-checked."""
         try:
             from playwright.async_api import async_playwright
         except ImportError as e:  # pragma: no cover - dependency is in requirements.txt
@@ -76,6 +81,7 @@ class BrowserRenderer:
         url_filter = re.compile(capture_json_url) if capture_json_url else None
         captured: list[tuple[str, Any]] = []
         blocked: list[str] = []
+        skip_types = _BLOCKED_RESOURCE_TYPES - ({"image"} if load_images else set())
 
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
@@ -86,7 +92,7 @@ class BrowserRenderer:
 
                 async def guard(route):
                     req = route.request
-                    if req.resource_type in _BLOCKED_RESOURCE_TYPES:
+                    if req.resource_type in skip_types:
                         return await route.abort()
                     if not self._allowed(req.url, main_host):
                         blocked.append(req.url[:200])
@@ -118,6 +124,17 @@ class BrowserRenderer:
                 except Exception:  # noqa: BLE001
                     pass
                 await page.wait_for_timeout(int(wait_seconds * 1000))
+                if wait_for_selector:
+                    try:
+                        await page.wait_for_selector(wait_for_selector, timeout=20000)
+                    except Exception:  # noqa: BLE001 - adapters report what is missing
+                        pass
+                for _ in range(scroll_rounds if scroll_selector else 0):
+                    try:
+                        await page.eval_on_selector(scroll_selector, "el => { el.scrollTop = el.scrollHeight; }")
+                    except Exception:  # noqa: BLE001
+                        break
+                    await page.wait_for_timeout(1500)
 
                 charts, markers = await self._read_charts(page)
                 for label in click_ranges or []:

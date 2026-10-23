@@ -41,6 +41,14 @@ scheduled workflows in a repository with no activity for 60 days are disabled au
 reinstalls Chromium (~1–2 min). The collector is idempotent, so late or duplicate runs are harmless,
 and `concurrency` prevents overlapping runs.
 
+### Seller discovery workflow
+
+`.github/workflows/smartbuy-discover.yml` runs `python -m app.workers.discovery` every 6 hours (cron `43 */6 * * *`).
+It needs the same `SMARTBUY_DATABASE_URL` secret, plus **`BRAVE_SEARCH_API_KEY`** for finding new shops
+(without it, only marketplace sub-sellers and already discovered shops are checked). Budget: ~4–6 min per run
+× 4 runs/day ≈ 600–700 Actions minutes per month; 2 Brave queries per product per run ≈ 240 per product per month.
+Apply migration `20261024000001_seller_discovery.sql` (`python scripts/migrate.py`) before the first run.
+
 ### Option B — persistent worker
 
 Any container host that keeps a process running (Railway, Render background worker, Fly.io machine,

@@ -22,6 +22,7 @@ from app.extraction.validation import retailer_key
 
 LOCK_NAMESPACE_PRICE = 4201
 LOCK_NAMESPACE_VENDOR = 4202
+LOCK_NAMESPACE_DISCOVERY = 4203
 
 
 def _now() -> datetime:
@@ -96,7 +97,8 @@ class Repository:
                                                    expected_vendor_product_id, is_active)
                values (%s, %s, %s, %s, %s, %s)
                on conflict (product_id, vendor_id, source_url) do update set adapter_name = excluded.adapter_name,
-                   expected_vendor_product_id = excluded.expected_vendor_product_id, is_active = excluded.is_active
+                   expected_vendor_product_id = excluded.expected_vendor_product_id, is_active = excluded.is_active,
+                   origin = 'registry', deactivated_at = null, deactivation_reason = null
                returning id""",
             (product_id, vendor_id, url, adapter_name, expected_vendor_product_id, is_active))
         return row["id"]
@@ -398,6 +400,140 @@ class Repository:
     def reviews_at(self, vendor_source_id: int, fetched_at: datetime) -> list[dict]:
         return self._all("select * from vendor_reviews where vendor_source_id = %s and fetched_at = %s order by id",
                          (vendor_source_id, fetched_at))
+
+    # ------------------------------------------------------------------ seller discovery
+    def vendor_sources_for_discovery(self, product_id: str, *, origins: tuple[str, ...]) -> list[dict]:
+        return self._all(
+            """select vs.*, v.name as vendor_name, v.website_domain from product_vendor_sources vs
+               join vendors v on v.id = vs.vendor_id
+               where vs.product_id = %s and vs.is_active and vs.origin = any(%s) order by vs.id""",
+            (product_id, list(origins)))
+
+    def vendor_source_by_url(self, product_id: str, url: str) -> dict | None:
+        return self._one("select * from product_vendor_sources where product_id = %s and source_url = %s order by id limit 1",
+                         (product_id, url))
+
+    def add_discovered_vendor_source(self, product_id: str, vendor_id: str, url: str, *, adapter_name: str, origin: str,
+                                     in_stock_at: datetime | None) -> int:
+        """Insert (or re-activate) a vendor source found by discovery. A URL that is already in the registry keeps
+        origin 'registry'."""
+        return self._one(
+            """insert into product_vendor_sources (product_id, vendor_id, source_url, adapter_name, origin,
+                                                   last_checked_at, last_in_stock_at)
+               values (%(p)s, %(v)s, %(u)s, %(a)s, %(o)s, now(), %(st)s)
+               on conflict (product_id, vendor_id, source_url) do update set is_active = true,
+                   deactivated_at = null, deactivation_reason = null, last_checked_at = now(),
+                   last_in_stock_at = coalesce(excluded.last_in_stock_at, product_vendor_sources.last_in_stock_at),
+                   origin = case when product_vendor_sources.origin = 'registry' then 'registry' else excluded.origin end
+               returning id""", {"p": product_id, "v": vendor_id, "u": url, "a": adapter_name, "o": origin, "st": in_stock_at})["id"]
+
+    def mark_vendor_source_checked(self, vendor_source_id: int, *, in_stock: bool, at: datetime | None = None) -> None:
+        self._one(
+            """update product_vendor_sources set last_checked_at = %(at)s,
+                   last_in_stock_at = case when %(st)s then %(at)s else last_in_stock_at end
+               where id = %(id)s returning id""", {"at": at or _now(), "st": in_stock, "id": vendor_source_id})
+
+    def upsert_seller(self, vendor_source_id: int, product_id: str, s: dict, observed_at: datetime) -> int:
+        """Seen on this check. Being in stock moves last_in_stock_at and re-activates a deactivated seller."""
+        return self._one(
+            """insert into vendor_sellers (vendor_source_id, product_id, seller_key, seller_name, seller_url,
+                                           first_seen_at, last_seen_at, last_in_stock_at)
+               values (%(vs)s, %(p)s, %(k)s, %(n)s, %(u)s, %(t)s, %(t)s, case when %(st)s then %(t)s end)
+               on conflict (vendor_source_id, seller_key) do update set
+                   seller_name = coalesce(excluded.seller_name, vendor_sellers.seller_name),
+                   seller_url = coalesce(excluded.seller_url, vendor_sellers.seller_url),
+                   last_seen_at = greatest(vendor_sellers.last_seen_at, excluded.last_seen_at),
+                   last_in_stock_at = case when %(st)s then excluded.last_seen_at else vendor_sellers.last_in_stock_at end,
+                   is_active = vendor_sellers.is_active or %(st)s,
+                   deactivated_at = case when %(st)s then null else vendor_sellers.deactivated_at end,
+                   deactivation_reason = case when %(st)s then null else vendor_sellers.deactivation_reason end
+               returning id""",
+            {"vs": vendor_source_id, "p": product_id, "k": s["seller_key"], "n": s.get("seller_name"),
+             "u": s.get("seller_url"), "t": observed_at, "st": bool(s.get("in_stock"))})["id"]
+
+    def insert_seller_offer(self, seller_id: int, observed_at: datetime, s: dict) -> bool:
+        row = self._one(
+            """insert into vendor_seller_offers (seller_id, observed_at, price, mrp, currency, in_stock, condition,
+                   fulfilled_by, min_quantity, seller_rating, seller_rating_count, seller_positive_pct, delivery_text)
+               values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               on conflict (seller_id, observed_at) do nothing returning id""",
+            (seller_id, observed_at, s.get("price"), s.get("mrp"), s.get("currency"), bool(s.get("in_stock")),
+             s.get("condition"), s.get("fulfilled_by"), s.get("min_quantity"), s.get("seller_rating"),
+             s.get("seller_rating_count"), s.get("seller_positive_pct"), (s.get("delivery_text") or "")[:300] or None))
+        return row is not None
+
+    def list_sellers(self, product_id: str, *, include_inactive: bool = False) -> list[dict]:
+        return self._all(
+            f"""select s.*, v.name as marketplace, vs.source_url as marketplace_url,
+                       o.observed_at, o.price, o.mrp, o.currency, o.in_stock, o.condition, o.fulfilled_by, o.min_quantity,
+                       o.seller_rating, o.seller_rating_count, o.seller_positive_pct, o.delivery_text
+                from vendor_sellers s
+                join product_vendor_sources vs on vs.id = s.vendor_source_id join vendors v on v.id = vs.vendor_id
+                left join lateral (select * from vendor_seller_offers o where o.seller_id = s.id
+                                   order by o.observed_at desc limit 1) o on true
+                where s.product_id = %s {'' if include_inactive else 'and s.is_active'}
+                order by s.is_active desc, o.in_stock desc nulls last, o.price nulls last, s.id""", (product_id,))
+
+    def seller_offer_history(self, seller_id: int, limit: int = 200) -> list[dict]:
+        return self._all("select * from vendor_seller_offers where seller_id = %s order by observed_at desc limit %s",
+                         (seller_id, limit))
+
+    def deactivate_not_selling(self, days: float, now: datetime | None = None) -> dict:
+        """Discovered sellers / sources with nothing in stock for `days` are switched off (kept, never deleted)."""
+        params = {"cut": (now or _now()) - timedelta(days=days), "why": f"not in stock for {days:g} days"}
+        with self.db.connection() as conn:
+            sellers = conn.execute(
+                """update vendor_sellers set is_active = false, deactivated_at = now(), deactivation_reason = %(why)s
+                   where is_active and coalesce(last_in_stock_at, first_seen_at) < %(cut)s returning id, product_id""",
+                params).fetchall()
+            sources = conn.execute(
+                """update product_vendor_sources set is_active = false, deactivated_at = now(), deactivation_reason = %(why)s
+                   where is_active and origin <> 'registry' and coalesce(last_in_stock_at, first_seen_at) < %(cut)s
+                   returning id, product_id, source_url""", params).fetchall()
+        return {"sellers": sellers, "sources": sources}
+
+    def reserve_search_queries(self, provider: str, n: int, limit: int, now: datetime | None = None) -> bool:
+        """Atomically count n queries against this month's limit. False (nothing counted) if they would exceed it."""
+        month = (now or _now()).date().replace(day=1)
+        row = self._one(
+            """insert into search_api_usage (provider, month, queries) select %(p)s, %(m)s, %(n)s where %(n)s <= %(lim)s
+               on conflict (provider, month) do update set queries = search_api_usage.queries + excluded.queries,
+                   updated_at = now()
+                   where search_api_usage.queries + excluded.queries <= %(lim)s
+               returning queries""", {"p": provider, "m": month, "n": n, "lim": limit})
+        return row is not None
+
+    def search_usage(self, provider: str, now: datetime | None = None) -> int:
+        row = self._one("select queries from search_api_usage where provider = %s and month = %s",
+                        (provider, (now or _now()).date().replace(day=1)))
+        return row["queries"] if row else 0
+
+    def note_candidate(self, product_id: str, url: str, host: str, query: str | None, title: str | None) -> dict:
+        return self._one(
+            """insert into discovery_candidates (product_id, url, host, search_query, search_title)
+               values (%s, %s, %s, %s, %s)
+               on conflict (product_id, url) do update set last_found_at = now(),
+                   search_query = excluded.search_query, search_title = coalesce(excluded.search_title, discovery_candidates.search_title)
+               returning *""", (product_id, url, host, query, (title or "")[:300] or None))
+
+    def update_candidate(self, candidate_id: int, **fields) -> dict | None:
+        allowed = {"status", "match_level", "match_evidence", "observed_price", "vendor_source_id", "last_checked_at",
+                   "decided_at", "decided_by", "error_message"}
+        if not fields or set(fields) - allowed:
+            raise ValueError(f"unknown candidate fields {set(fields) - allowed}")
+        sets = ", ".join(f"{k} = %({k})s" for k in fields)
+        vals = {k: (_json(v) if k == "match_evidence" else v) for k, v in fields.items()}
+        return self._one(f"update discovery_candidates set {sets} where id = %(id)s returning *", {**vals, "id": candidate_id})
+
+    def get_candidate(self, candidate_id: int) -> dict | None:
+        return self._one("select * from discovery_candidates where id = %s", (candidate_id,))
+
+    def list_candidates(self, *, status: str | None = None, product_id: str | None = None, limit: int = 200) -> list[dict]:
+        return self._all(
+            """select c.*, vs.is_active as source_active from discovery_candidates c
+               left join product_vendor_sources vs on vs.id = c.vendor_source_id
+               where (%(st)s::text is null or c.status = %(st)s) and (%(p)s::text is null or c.product_id = %(p)s)
+               order by c.last_found_at desc limit %(lim)s""", {"st": status, "p": product_id, "lim": limit})
 
     # ------------------------------------------------------------------ forecasts / recommendations
     def insert_forecast(self, f: dict) -> int:

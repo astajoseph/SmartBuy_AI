@@ -4,21 +4,30 @@
 * myntra     - https://www.myntra.com/.../<id>/buy     (embedded JSON: window.__myx = {...pdpData...})
 * nykaa      - https://www.nykaa.com|nykaaman.com/.../p/<id>  (embedded JSON: window.__PRELOADED_STATE__)
 
-Each is used only on demand (vendor_service). Plain HTTP is enough for all three - no JavaScript rendering.
+Each is used on demand (vendor_service). Plain HTTP is enough for all three - no JavaScript rendering.
 A bot-check page is reported as blocked and never bypassed. Values the page does not show stay None.
+
+extract_sellers() lists every seller of the product on the marketplace, for seller discovery
+(services/discovery_service.py):
+* amazon_in - the "Other sellers on Amazon" panel (/dp/<ASIN>?aod=1), filled by JavaScript, so it is rendered
+              in the headless browser and scrolled to load more offers (inspected 2026-10-24: 1 featured + 24 offers)
+* myntra    - pdpData.sellers + sizes[].sizeSellerData (price and stock per seller) from the same embedded JSON
 """
 from __future__ import annotations
 
 import json
 import re
+from urllib.parse import parse_qs, urlsplit
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import httpx
 from bs4 import BeautifulSoup
 
 from app.extraction.adapters.common import looks_blocked
 from app.extraction.base import Adapter, ExtractionContext, ExtractionResult
 from app.extraction.validation import InvalidValue, parse_price
+from app.security.url_validation import RobotsDisallowed
 from app.extraction.vendor_offers import parse_bank_offer, parse_emi_text
 
 VENDOR_FIELDS = ("vendor.price", "vendor.mrp", "vendor.availability", "vendor.seller_name", "vendor.emi_status",
@@ -158,6 +167,89 @@ class AmazonInAdapter(_MarketplaceAdapter):
         return r
 
 
+    supports_sellers = True
+
+    async def extract_sellers(self, url: str, ctx: ExtractionContext) -> ExtractionResult:
+        r = self.new_result(url)
+        asin = re.search(r"/dp/([A-Z0-9]{10})", url)
+        if not asin:
+            r.warnings.append("No ASIN in the URL; cannot open the seller list.")
+            return r
+        aod_url = f"https://www.amazon.in/dp/{asin.group(1)}?aod=1"
+        if ctx.browser is None:
+            r.warnings.append("Amazon's seller list is loaded by JavaScript and no browser is available.")
+            return r
+        if not await ctx.fetcher.robots_allowed(httpx.URL(aod_url)):
+            raise RobotsDisallowed(f"robots.txt disallows {aod_url}")
+        ctx.browser.robots = ctx.fetcher.robots_for(aod_url)
+        ctx.browser.respect_robots_for_subrequests = True
+        rendered = await ctx.browser.render(aod_url, wait_seconds=float(ctx.config.get("wait_seconds", 3)),
+                                            wait_for_selector="#aod-offer-list", scroll_selector="#all-offers-display-scroller",
+                                            scroll_rounds=int(ctx.config.get("scroll_rounds", 8)),
+                                            load_images=True)     # the panel opens only after the page's assets load
+        r.requires_js = True
+        if looks_blocked(None, rendered.html):
+            r.blocked = True
+            r.warnings.append("Amazon returned a bot-check page; not bypassed.")
+            return r
+        r.product.update({"product_code": asin.group(1)})
+        r.sellers, total = parse_amazon_offers(rendered.html)
+        if not r.sellers:
+            r.warnings.append("The 'Other sellers' panel did not load or Amazon changed its layout.")
+        elif total is not None and len(r.sellers) < total + 1:
+            r.warnings.append(f"Read {len(r.sellers)} of {total + 1} offers; the rest did not load in the panel.")
+        return r
+
+
+_RATING = re.compile(r"([\d.]+) out of 5 stars\s*\(([\d,]+) ratings?\)(?:\s*(\d+)% positive)?")
+
+
+def parse_amazon_offers(html: str) -> tuple[list[dict], int | None]:
+    """Offers in Amazon's All Offers Display: the featured (#aod-pinned-offer) and the others (#aod-offer).
+    Returns (sellers, number of non-featured offers Amazon says exist)."""
+    s = BeautifulSoup(html, "lxml")
+    out: dict[str, dict] = {}
+    for o in s.select("#aod-pinned-offer, #aod-offer"):
+        sold = o.select_one("#aod-offer-soldBy")
+        link = sold.select_one("a[href]") if sold else None
+        name = _txt(link) if link else re.sub(r"^Sold by\s*", "", (_txt(sold) or "")).split(" Seller rating")[0].strip() or None
+        key = None
+        if link:
+            key = (parse_qs(urlsplit(link["href"]).query).get("seller") or [None])[0]
+        key = key or (re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") if name else None)
+        if not key or key in out:
+            continue
+        price_box = o.select_one("[id^=aod-price-]")
+        price = None
+        for el in price_box.select(".aok-offscreen, .a-offscreen") if price_box else []:
+            m = re.search(r"₹\s*([\d,]+(?:\.\d+)?)", el.get_text())
+            if m and "per " not in el.get_text():
+                price = _price(m.group(1))
+                break
+        text = _txt(o) or ""
+        mrp = re.search(r"M\.R\.P\.:\s*₹\s*([\d,]+(?:\.\d+)?)", text)
+        rating = _RATING.search(_txt(o.select_one("#aod-offer-seller-rating")) or "")
+        qty = re.search(r"Minimum Order Quantity:\s*(\d+)", text)
+        ships = re.sub(r"^Ships from\s*", "", _txt(o.select_one("#aod-offer-shipsFrom")) or "") or None
+        delivery = _txt(o.select_one("[id^=unified-delivery-message]"))
+        out[key] = {
+            "seller_key": key, "seller_name": name,
+            "seller_url": f"https://www.amazon.in/sp?seller={key}" if link else None,
+            "price": price, "mrp": _price(mrp.group(1)) if mrp else None, "currency": "INR" if price else None,
+            "in_stock": price is not None and o.select_one('input[name="submit.addToCart"]') is not None,
+            "condition": _txt(o.select_one("#aod-offer-heading")), "fulfilled_by": ships,
+            "min_quantity": int(qty.group(1)) if qty else None,
+            "seller_rating": rating.group(1) if rating else None,
+            "seller_rating_count": int(rating.group(2).replace(",", "")) if rating else None,
+            "seller_positive_pct": rating.group(3) if rating and rating.group(3) else None,
+            "delivery_text": delivery[:200] if delivery else None,
+            "featured": o.get("id") == "aod-pinned-offer",
+        }
+    total = s.select_one("#aod-total-offer-count")
+    n = int(total["value"]) if total and str(total.get("value") or "").isdigit() else None
+    return list(out.values()), n
+
+
 # ----------------------------------------------------------------------------- Myntra
 class MyntraAdapter(_MarketplaceAdapter):
     name = "myntra"
@@ -220,7 +312,42 @@ class MyntraAdapter(_MarketplaceAdapter):
             r.warnings.append("Myntra's 'top reviews' are hand-picked by Myntra and may cover related variants; not a random sample.")
         if r.vendor["emi_status"] == "not_offered":
             r.warnings.append("Myntra marks EMI as not available for this item (emiEnabled = false).")
+        r.sellers = myntra_sellers(p)
         return r
+
+    supports_sellers = True
+
+    async def extract_sellers(self, url: str, ctx: ExtractionContext) -> ExtractionResult:
+        return await self.extract(url, ctx)          # the seller list is in the same embedded JSON
+
+
+def myntra_sellers(p: dict) -> list[dict]:
+    """One entry per seller in pdpData.sellers; price and stock from that seller's size entries."""
+    mrp = _price((p.get("price") or {}).get("mrp") or p.get("mrp"))
+    offers: dict[str, dict] = {}
+    for sz in p.get("sizes") or []:
+        for sd in sz.get("sizeSellerData") or []:
+            key = str(sd.get("sellerPartnerId") or "")
+            if not key:
+                continue
+            o = offers.setdefault(key, {"price": None, "units": 0})
+            price = _price(sd.get("discountedPrice"))
+            if price and (o["price"] is None or price < o["price"]):
+                o["price"] = price
+            o["units"] += sd.get("availableCount") or 0
+    out = []
+    for sl in p.get("sellers") or []:
+        key = str(sl.get("sellerPartnerId") or "")
+        if not key:
+            continue
+        o = offers.get(key, {"price": None, "units": 0})
+        out.append({"seller_key": key, "seller_name": sl.get("displayName") or sl.get("sellerName"), "seller_url": None,
+                    "price": o["price"], "mrp": mrp, "currency": "INR" if o["price"] else None,
+                    "in_stock": bool(o["units"]) and not (p.get("flags") or {}).get("outOfStock"),
+                    "condition": "New", "fulfilled_by": None, "min_quantity": None, "seller_rating": None,
+                    "seller_rating_count": None, "seller_positive_pct": None, "delivery_text": None,
+                    "featured": key == str((p.get("selectedSeller") or {}).get("sellerPartnerId"))})
+    return out
 
 
 # ----------------------------------------------------------------------------- Nykaa / Nykaa Man

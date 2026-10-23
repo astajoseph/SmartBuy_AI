@@ -224,6 +224,7 @@ function Operations({ call }: { call: Call }) {
   const [health, setHealth] = useState<Row[] | null>(null);
   const [jobs, setJobs] = useState<Row[] | null>(null);
   const [cache, setCache] = useState<Row[] | null>(null);
+  const [cands, setCands] = useState<Row[] | null>(null);
   const [out, setOut] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -232,8 +233,9 @@ function Operations({ call }: { call: Call }) {
   const refresh = useCallback(async () => {
     setErr(null);
     try {
-      const [h, j, c] = await Promise.all([call<Row[]>("/api/admin/sources/health"), call<Row[]>("/api/admin/jobs?limit=50"), call<Row[]>("/api/admin/cache-status")]);
-      setHealth(h); setJobs(j); setCache(c);
+      const [h, j, c, d] = await Promise.all([call<Row[]>("/api/admin/sources/health"), call<Row[]>("/api/admin/jobs?limit=50"), call<Row[]>("/api/admin/cache-status"),
+        call<Row[]>("/api/admin/discovery/candidates?limit=100")]);
+      setHealth(h); setJobs(j); setCache(c); setCands(d);
     } catch (e) { setErr((e as Error).message); }
   }, [call]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -259,6 +261,28 @@ function Operations({ call }: { call: Call }) {
                     <button className="btn-secondary w-full" disabled={busy} onClick={() => run("Refreshing vendors", () => call(`/api/admin/refresh-vendor-data/${h.product_id}`, { method: "POST" }))}>Refresh vendors</button></td></tr>
               ))}</tbody>
             </table></div>
+          </Card>
+          <Card title="Discovered shops (web search)" actions={<button className="btn-secondary" disabled={busy} onClick={() => run("Running discovery (can take a few minutes)", () => call("/api/admin/discovery/run", { method: "POST" }))}>Run discovery now</button>}>
+            <p className="mb-2 text-xs text-slate-500">Runs every 6 hours. Pages that clearly sell the product are added automatically; unclear ones wait here. Approve adds the page as a vendor; reject stops tracking it.</p>
+            {!cands?.length ? <p className="text-sm text-slate-500">Nothing found yet (web search needs BRAVE_SEARCH_API_KEY).</p> : (
+              <div className="overflow-x-auto"><table className="table">
+                <thead><tr><th>Status</th><th>Page</th><th>Price</th><th>Why</th><th>Last checked</th><th /></tr></thead>
+                <tbody>{[...cands].sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending")).map((c) => {
+                  const ev = (c.match_evidence ?? {}) as { reasons?: string[]; page_name?: string };
+                  return (
+                    <tr key={String(c.id)}>
+                      <td className={`text-xs font-medium ${c.status === "pending" ? "text-amber-700" : c.status === "rejected" || c.status === "error" ? "text-slate-500" : "text-emerald-700"}`}>{String(c.status).replace("_", " ")}{c.source_active === false && <div className="font-normal text-slate-500">no longer selling</div>}</td>
+                      <td className="max-w-xs break-all text-xs"><a className="text-brand-600 underline" href={String(c.url)} target="_blank" rel="noreferrer">{String(c.host)}</a><div className="text-slate-500">{ev.page_name ?? (c.search_title as string) ?? ""}</div><div className="text-slate-400">{String(c.product_id)}</div></td>
+                      <td className="text-xs">{money(c.observed_price as string)}</td>
+                      <td className="max-w-xs text-xs">{ev.reasons?.join("; ") ?? (c.error_message as string) ?? ""}</td>
+                      <td className="text-xs">{dateTime(c.last_checked_at as string)}</td>
+                      <td className="space-y-1">{c.status !== "approved" && c.status !== "auto_added" && <button className="btn-secondary w-full" disabled={busy} onClick={() => run("Approving", () => call(`/api/admin/discovery/candidates/${c.id}/approve`, { method: "POST" }))}>Approve</button>}
+                        {c.status !== "rejected" && <button className="btn-secondary w-full" disabled={busy} onClick={() => run("Rejecting", () => call(`/api/admin/discovery/candidates/${c.id}/reject`, { method: "POST" }))}>Reject</button>}</td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table></div>
+            )}
           </Card>
           <Card title="Test a URL (inspect & report extractable fields)">
             <div className="grid gap-3 md:grid-cols-4">

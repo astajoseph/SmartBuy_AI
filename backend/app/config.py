@@ -1,6 +1,6 @@
 """Application settings, loaded from environment variables / the repository's .env.
 
-Secrets (DATABASE_URL, GEMINI_API_KEY, ADMIN_API_TOKEN, SUPABASE_JWT_SECRET) are only read
+Secrets (DATABASE_URL, GEMINI_API_KEY, ADMIN_API_TOKEN, SUPABASE_JWT_SECRET, BRAVE_SEARCH_API_KEY) are only read
 here and never logged. See ../../.env.example for every variable.
 """
 from functools import lru_cache
@@ -64,6 +64,17 @@ class Settings(BaseSettings):
 
     default_collection_interval_minutes: int = Field(default=360, ge=30)
 
+    # Seller discovery (app.workers.discovery): marketplace sub-sellers + vendor sites found by web search
+    brave_search_api_key: SecretStr | None = None    # empty = web search skipped, marketplace sellers still tracked
+    # Hard cap on Brave queries per calendar month (UTC), counted in the database before each call. Brave's Search
+    # plan gives $5 free credit a month = 1,000 queries at $5 / 1,000; 800 leaves a margin so the card is never charged.
+    brave_monthly_query_limit: int = Field(default=800, ge=0)
+    seller_inactive_days: float = Field(default=30, gt=0)   # not in stock this long -> discovered seller/source deactivated
+    discovery_search_count: int = Field(default=20, ge=1, le=20)     # results per search query (Brave max 20)
+    discovery_max_checks_per_product: int = Field(default=8, ge=0)  # new candidate pages verified per product per run
+    discovery_recheck_rejected_days: float = 14      # a rejected page is not fetched again before this
+    discovery_blocked_hosts: str = ""                # comma separated, in addition to the built-in non-shop list
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
@@ -75,6 +86,10 @@ class Settings(BaseSettings):
     @property
     def extra_allowed_host_set(self) -> set[str]:
         return {h.strip().lower() for h in self.extra_allowed_hosts.split(",") if h.strip()}
+
+    @property
+    def discovery_blocked_host_set(self) -> set[str]:
+        return {h.strip().lower() for h in self.discovery_blocked_hosts.split(",") if h.strip()}
 
 
 @lru_cache

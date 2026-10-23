@@ -66,6 +66,14 @@ Notes from the inspection:
   unavailable, the failure is negative-cached for 15 minutes, and no evasion is attempted.
 * Tracking parameters (`gclid`, `utm_*`, `ref=`, `dib`…) were removed from the registered URLs.
 
+## Seller lists (seller discovery, inspected 2026-10-24)
+
+| Adapter | Where | Notes |
+|---|---|---|
+| `amazon_in.extract_sellers` | `/dp/<ASIN>?aod=1` rendered in the headless browser; `#aod-pinned-offer` + `#aod-offer` cards | seller id from the `seller=` link, price (`.aok-offscreen`), MRP, ships from, seller rating / count / % positive, minimum order quantity, delivery text; in stock = an Add-to-Cart button. The panel opens only after the page's assets load, so images are loaded for this render (still address-checked). It loads more offers on scroll; on 2026-10-24 it showed 19 of 25 after scrolling (logged as a warning). `/gp/aod/ajax` returns 404 to plain HTTP. robots.txt allows `/dp/` and `/gp/offer-listing/`. |
+| `myntra.extract_sellers` | same embedded `pdpData` as the product page | `sellers[]` + `sizes[].sizeSellerData` (price, units per seller) |
+| `nykaa` | — | no seller list on the page (one seller); Nykaa Man still answers 403 to this network |
+
 ## Validation rules
 
 * Prices: positive, finite, ≤ ₹10 crore; `₹`, `Rs.`, commas and Indian grouping handled.

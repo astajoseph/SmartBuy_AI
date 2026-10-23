@@ -60,6 +60,7 @@ class ExtractionResult:
     emi_plans: list[dict[str, Any]] = field(default_factory=list)
     review_aggregates: list[dict[str, Any]] = field(default_factory=list)
     reviews: list[dict[str, Any]] = field(default_factory=list)
+    sellers: list[dict[str, Any]] = field(default_factory=list)  # marketplace offers: seller_key, seller_name, price, in_stock ...
     warnings: list[str] = field(default_factory=list)
     expected_fields: tuple[str, ...] = ()
 
@@ -81,6 +82,8 @@ class ExtractionResult:
             found.append("review_aggregate")
         if self.reviews:
             found.append("review_samples")
+        if self.sellers:
+            found.append("sellers")
         return found
 
     def missing_fields(self) -> list[str]:
@@ -117,6 +120,7 @@ class ExtractionResult:
             "emi_plans": _jsonable(self.emi_plans),
             "review_aggregates": _jsonable(self.review_aggregates),
             "review_samples": len(self.reviews),
+            "sellers": _jsonable(self.sellers),
         }
 
 
@@ -152,3 +156,9 @@ class Adapter(abc.ABC):
 
     @abc.abstractmethod
     async def extract(self, url: str, ctx: ExtractionContext) -> ExtractionResult: ...
+
+    supports_sellers: ClassVar[bool] = False   # marketplace page listing several sellers for the same product
+
+    async def extract_sellers(self, url: str, ctx: ExtractionContext) -> ExtractionResult:
+        """Every seller offering the product on this marketplace page (result.sellers). Discovery only."""
+        raise NotImplementedError(f"{self.name} does not list sellers")
