@@ -386,3 +386,36 @@ def test_sellers_endpoint_reads_the_database_only(repo, monkeypatch):
     body = TestClient(app).get("/api/products/test-product/sellers").json()
     assert body["sellers"][0]["seller_name"] == "Featured Seller" and body["sellers"][0]["price"] == "499.00"
     assert body["discovered_sites"] == []
+
+
+def test_search_interval_keeps_brave_within_budget(monkeypatch):
+    from app.config import get_settings
+    get_settings.cache_clear()
+    assert ds.search_interval_hours(16) == 48                     # 16 x 2 x 15 searches/month = 480 <= 720
+    assert ds.search_interval_hours(40) == 80                     # stretched: 40 x 2 x 9 = 720
+    for n in (1, 16, 25, 40, 100):
+        monthly = n * ds.QUERIES_PER_SEARCH * 720 / ds.search_interval_hours(n)
+        assert monthly <= 0.9 * 800 + 1e-9, n
+
+
+def test_products_take_turns_for_web_search():
+    now = datetime(2026, 10, 24, tzinfo=timezone.utc)
+    products = [{"id": f"p{i}", "last_web_search_at": now - timedelta(hours=60 - i)} for i in range(16)] + [{"id": "new"}]
+    turn = ds.products_to_search(products, now)
+    # 17 products, interval 48 h, runs every 6 h -> share ceil(17*6/48) = 3; never-searched first, then the oldest
+    assert turn == {"new", "p0", "p1"}
+    assert ds.products_to_search([{"id": "x", "last_web_search_at": now - timedelta(hours=10)}], now) == set()
+
+
+@pytest.mark.db
+def test_run_discovery_searches_only_this_runs_turn(repo):
+    product = _setup(repo)
+    search = FakeSearch([])
+    deps = ds.DiscoveryDeps(fetcher_factory=lambda h: FakeFetcher(), browser_factory=lambda: None, marketplace=False,
+                            search_factory=lambda: search)
+    asyncio.run(ds.run_discovery(repo, deps=deps))
+    assert len(search.queries) == 2 and repo.get_product("test-product")["last_web_search_at"] is not None
+    asyncio.run(ds.run_discovery(repo, deps=deps))                 # searched minutes ago: not its turn
+    assert len(search.queries) == 2
+    asyncio.run(ds.run_discovery(repo, product_id="test-product", deps=deps))   # explicit product run: searched
+    assert len(search.queries) == 4

@@ -395,5 +395,19 @@ and refused Apollo Pharmacy and Flipkart's image CDN. NAT64 answers are now judg
   Frontend: integrity panel, star distribution, genuine vs flagged quotes, seller reputation table on the Reviews page.
   Assistant prompt rule 11. Tests: `tests/test_review_integrity.py` (19) — 206 pass.
 
+**Brave search budget: products take turns.**
+* Before: every discovery run web-searched every product (2 Brave queries each), which would overrun the monthly limit
+  as products are added.
+* Now each product is web-searched at most every `discovery_search_min_hours` (48 h); the interval stretches
+  automatically so all products together use at most 90% of `brave_monthly_query_limit` (`search_interval_hours`).
+  Each run (every `discovery_run_every_hours`, 6 h) searches only the products whose turn it is: never-searched first,
+  then oldest, capped at the run's fair share (`products_to_search`). Marketplace lists and re-checks still run for all.
+  An explicit single-product run always searches it.
+* New column `products.last_web_search_at` — migration `20261024000004_search_schedule.sql`
+  (**must be applied to Supabase before the next cloud discovery run**). `Repository.mark_web_searched`.
+* Workflow timeouts raised to 45 min (collect and discover); local cron script timeout 1500 s -> 3600 s.
+* Tests: interval stays within budget, turn-taking, and a DB test that a run searches only when it is the product's turn.
+  209 pass (with the test database up).
+
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.

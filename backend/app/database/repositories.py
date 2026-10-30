@@ -526,6 +526,9 @@ class Repository:
                    returning id, product_id, source_url""", params).fetchall()
         return {"sellers": sellers, "sources": sources}
 
+    def mark_web_searched(self, product_id: str, at: datetime | None = None) -> None:
+        self._one("update products set last_web_search_at = %s where id = %s returning id", (at or _now(), product_id))
+
     def reserve_search_queries(self, provider: str, n: int, limit: int, now: datetime | None = None) -> bool:
         """Atomically count n queries against this month's limit. False (nothing counted) if they would exceed it."""
         month = (now or _now()).date().replace(day=1)

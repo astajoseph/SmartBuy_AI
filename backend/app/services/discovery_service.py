@@ -108,7 +108,30 @@ def price_range(repo: Repository, product_id: str) -> tuple[Decimal, Decimal] | 
     return (min(lows) * PRICE_LOW_FACTOR).quantize(Decimal("1")), (max(highs) * PRICE_HIGH_FACTOR).quantize(Decimal("1"))
 
 
-async def discover_product(repo: Repository, product: dict, *, deps: DiscoveryDeps | None = None) -> dict:
+QUERIES_PER_SEARCH = 2                 # web_search.queries_for returns two queries per product
+
+
+def search_interval_hours(n_products: int) -> float:
+    """Hours between web searches of one product so that n products use at most 90% of the monthly Brave limit."""
+    s = get_settings()
+    budget = 0.9 * s.brave_monthly_query_limit
+    needed = QUERIES_PER_SEARCH * 720 * n_products / budget if budget > 0 else float("inf")   # 720 h = 30 days
+    return max(s.discovery_search_min_hours, needed)
+
+
+def products_to_search(products: list[dict], now: datetime | None = None) -> set[str]:
+    """This run's turn: products not searched within the interval, oldest first, at most the run's fair share."""
+    now = now or datetime.now(timezone.utc)
+    interval = search_interval_hours(len(products))
+    due = sorted((p for p in products if p.get("last_web_search_at") is None
+                  or p["last_web_search_at"] <= now - timedelta(hours=interval)),
+                 key=lambda p: (p.get("last_web_search_at") is not None, p.get("last_web_search_at") or now))
+    share = max(1, -(-len(products) * get_settings().discovery_run_every_hours // interval))    # ceil
+    return {p["id"] for p in due[: int(share)]}
+
+
+async def discover_product(repo: Repository, product: dict, *, deps: DiscoveryDeps | None = None,
+                           search: bool = True) -> dict:
     deps = deps or DiscoveryDeps()
     with repo.db.connection() as lock_conn:
         key = zlib.crc32(product["id"].encode()) & 0x7FFFFFFF
@@ -120,7 +143,8 @@ async def discover_product(repo: Repository, product: dict, *, deps: DiscoveryDe
             if deps.marketplace:
                 await _marketplace_sellers(repo, product, deps, rep)
             await _recheck_discovered(repo, product, deps, rep)
-            await _web_search(repo, product, deps, rep)
+            if search:
+                await _web_search(repo, product, deps, rep)
         except Exception as e:  # noqa: BLE001 - recorded; one product must not stop the others
             log.exception("discovery failed for %s", product["id"])
             rep.errors.append(f"{e.__class__.__name__}: {e}")
@@ -189,6 +213,7 @@ async def _web_search(repo: Repository, product: dict, deps: DiscoveryDeps, rep:
     client = deps.search_factory()
     if client is None:
         return
+    repo.mark_web_searched(product["id"])
     s = get_settings()
     product_hosts = {(v["website_domain"] or "").lower() for v in repo.list_vendor_sources(product["id"])} - {""}
     product_hosts |= {re.sub(r"^www\.", "", h) for h in product_hosts}
@@ -331,8 +356,10 @@ def reject_candidate(repo: Repository, candidate_id: int, decided_by: str) -> di
 
 
 async def run_discovery(repo: Repository, *, product_id: str | None = None, deps: DiscoveryDeps | None = None) -> dict:
-    products = [p for p in repo.list_products() if product_id is None or p["id"] == product_id]
-    results = [await discover_product(repo, p, deps=deps) for p in products]
+    active = repo.list_products()
+    products = [p for p in active if product_id is None or p["id"] == product_id]
+    turn = {p["id"] for p in products} if product_id else products_to_search(active)   # one product asked for: search it
+    results = [await discover_product(repo, p, deps=deps, search=p["id"] in turn) for p in products]
     gone = repo.deactivate_not_selling(get_settings().seller_inactive_days)
     return {"products": results,
             "deactivated": {"sellers": len(gone["sellers"]), "sources": [r["source_url"] for r in gone["sources"]]}}

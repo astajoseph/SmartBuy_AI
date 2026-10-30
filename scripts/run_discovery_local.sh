@@ -12,6 +12,6 @@ flock -n 9 || { echo "$(date -Is) previous run still active; skipped" >> "$LOG";
 cd "$ROOT/backend"
 {
   echo "=== $(date -Is) start"
-  timeout 1500 .venv/bin/python -m app.workers.discovery --no-search && echo "=== $(date -Is) ok" || echo "=== $(date -Is) FAILED ($?)"
+  timeout 3600 .venv/bin/python -m app.workers.discovery --no-search && echo "=== $(date -Is) ok" || echo "=== $(date -Is) FAILED ($?)"
 } >> "$LOG" 2>&1
 tail -n 5000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"

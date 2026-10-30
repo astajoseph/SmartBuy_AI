@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # Hard cap on Brave queries per calendar month (UTC), counted in the database before each call. Brave's Search
     # plan gives $5 free credit a month = 1,000 queries at $5 / 1,000; 800 leaves a margin so the card is never charged.
     brave_monthly_query_limit: int = Field(default=800, ge=0)
+    # Each product is web-searched at most every this many hours (longer automatically when many products would
+    # exceed 90% of the monthly limit); discovery runs every discovery_run_every_hours and searches only the products
+    # whose turn it is, so the queries spread evenly over the month.
+    discovery_search_min_hours: float = Field(default=48, ge=6)
+    discovery_run_every_hours: float = Field(default=6, gt=0)
     seller_inactive_days: float = Field(default=30, gt=0)   # not in stock this long -> discovered seller/source deactivated
     discovery_search_count: int = Field(default=20, ge=1, le=20)     # results per search query (Brave max 20)
     discovery_max_checks_per_product: int = Field(default=8, ge=0)  # new candidate pages verified per product per run
