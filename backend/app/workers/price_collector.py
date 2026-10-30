@@ -24,6 +24,7 @@ from app.database.repositories import LOCK_NAMESPACE_PRICE, Repository
 from app.extraction.base import ExtractionContext, ExtractionResult
 from app.extraction.browser import BrowserRenderer
 from app.extraction.registry import resolve_adapter
+from app.services import schedule_service
 from app.security.url_validation import FetchError, RobotsDisallowed, SafeFetcher, UnsafeURLError
 
 log = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ async def collect_due(repo: Repository, *, deps: CollectorDeps | None = None, co
                       grace_minutes: float = 0) -> list[dict]:
     """grace_minutes: also collect sources that become due within this many minutes, so a cron job that fires a
     little early (or a source whose last run finished a little late) does not skip a whole cycle."""
-    sources = repo.due_price_sources(datetime.now(timezone.utc) + timedelta(minutes=grace_minutes))
+    sources = schedule_service.due_sources(repo, datetime.now(timezone.utc) + timedelta(minutes=grace_minutes))
     sem = asyncio.Semaphore(concurrency or get_settings().collection_concurrency)
 
     async def run(s: dict) -> dict:

@@ -25,6 +25,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.extraction.adapters.common import looks_blocked
+from app.extraction.delivery import parse_delivery
 from app.extraction.base import Adapter, ExtractionContext, ExtractionResult
 from app.extraction.validation import InvalidValue, parse_price
 from app.security.url_validation import RobotsDisallowed
@@ -39,6 +40,21 @@ def _price(v) -> Decimal | None:
         return parse_price(v)
     except InvalidValue:
         return None
+
+
+def _delivery_strings(obj, depth: int = 2) -> list[str]:
+    """String values in embedded product JSON that talk about delivery / shipping (keys differ per site)."""
+    out: list[str] = []
+    if isinstance(obj, str):
+        if re.search(r"deliver|shipping", obj, re.I) and len(obj) < 300:
+            out.append(obj)
+    elif depth > 0 and isinstance(obj, dict):
+        for v in obj.values():
+            out += _delivery_strings(v, depth - 1)
+    elif depth > 0 and isinstance(obj, list):
+        for v in obj[:20]:
+            out += _delivery_strings(v, depth - 1)
+    return out
 
 
 def _txt(el) -> str | None:
@@ -139,6 +155,10 @@ class AmazonInAdapter(_MarketplaceAdapter):
             "emi_status": emi_status, "bank_offers": offers,
             "emi_page_facts": {k: (str(v) if not isinstance(v, (bool, list)) else v) for k, v in facts.items()},
         })
+        buybox = " ".join(filter(None, (_txt(s.select_one(sel)) for sel in
+                                        ("#deliveryBlockMessage", "#mir-layout-DELIVERY_BLOCK", "#price-shipping-message",
+                                         "#amazonGlobal_feature_div", "#buybox-see-all-buying-choices"))))
+        r.vendor.update(parse_delivery(buybox))
         if emi_status == "not_shown":
             r.warnings.append("No EMI option is shown on this Amazon product page.")
         if any(o["min_spend"] is None for o in offers):
@@ -330,6 +350,7 @@ class MyntraAdapter(_MarketplaceAdapter):
                               "unhelpful": _int_or_none(rv.get("downvotes")), "media": bool(rv.get("reviewImages"))})
         if r.reviews:
             r.warnings.append("Myntra's 'top reviews' are hand-picked by Myntra and may cover related variants; not a random sample.")
+        r.vendor.update(parse_delivery(" ".join([returns or ""] + [str(v) for v in svc.values() if isinstance(v, str)])))
         if r.vendor["emi_status"] == "not_offered":
             r.warnings.append("Myntra marks EMI as not available for this item (emiEnabled = false).")
         r.sellers = myntra_sellers(p)
@@ -395,6 +416,7 @@ class NykaaAdapter(_MarketplaceAdapter):
             "return_policy": p.get("returnMessage") or p.get("messageOnReturn"), "stock_units": p.get("quantity"),
             "product_expiry": p.get("expiry"), "emi_status": "not_shown", "bank_offers": offers,
         })
+        r.vendor.update(parse_delivery(" ".join(_delivery_strings(p))))
         r.warnings.append("Nykaa does not show EMI terms on the product page.")
         if p.get("rating") is not None:
             r.review_aggregates.append({

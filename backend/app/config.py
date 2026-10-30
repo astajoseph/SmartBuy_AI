@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     significant_drop_percent: float = 5.0
 
     default_collection_interval_minutes: int = Field(default=360, ge=30)
+    # Adaptive checking: a source's configured interval is shortened for products with price alerts, a sale on, or a
+    # volatile price, and lengthened for flat prices, out-of-stock items and sources that keep failing.
+    adaptive_schedule: bool = True
+    adaptive_min_interval_minutes: int = Field(default=30, ge=30)
+    adaptive_max_interval_minutes: int = Field(default=1440, ge=30)
+    out_of_stock_recheck_hours: float = Field(default=24, gt=0)      # discovered shops not selling are re-read this often
 
     # Seller discovery (app.workers.discovery): marketplace sub-sellers + vendor sites found by web search
     brave_search_api_key: SecretStr | None = None    # empty = web search skipped, marketplace sellers still tracked

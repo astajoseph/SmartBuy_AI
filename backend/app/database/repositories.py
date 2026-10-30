@@ -118,18 +118,58 @@ class Repository:
             """select * from product_sources where source_type = 'price_history'
                and (%(pid)s::text is null or product_id = %(pid)s) order by id""", {"pid": product_id})
 
-    def due_price_sources(self, now: datetime | None = None, failure_retry_minutes: int = 30) -> list[dict]:
-        """Enabled price-history sources whose interval has elapsed. Vendor sources are never returned."""
+    def due_price_sources(self, now: datetime | None = None, failure_retry_minutes: int = 30,
+                          interval_minutes: int | None = None) -> list[dict]:
+        """Enabled price-history sources whose interval has elapsed. Vendor sources are never returned.
+        interval_minutes replaces each source's own interval (the adaptive scheduler passes its floor and then
+        applies the per-source adaptive interval itself)."""
         return self._all(
             """select s.* from product_sources s join products p on p.id = s.product_id
                where s.source_type = 'price_history' and s.is_active and p.is_active
                  and (s.last_success_at is null
-                      or s.last_success_at + make_interval(mins => s.collection_interval_minutes) <= %(now)s)
+                      or s.last_success_at + make_interval(mins => coalesce(%(iv)s::int, s.collection_interval_minutes)) <= %(now)s)
                  and (s.last_attempt_at is null
                       or s.last_attempt_at + make_interval(mins => %(retry)s) <= %(now)s
                       or s.last_success_at >= s.last_attempt_at)
                order by s.last_success_at nulls first, s.id""",
-            {"now": now or _now(), "retry": failure_retry_minutes})
+            {"now": now or _now(), "retry": failure_retry_minutes, "iv": interval_minutes})
+
+    def schedule_signals(self, product_ids: list[str], now: datetime | None = None) -> dict[str, dict]:
+        """Per product: what decides how often it should be checked (price movement, alerts, stock, sales)."""
+        now = now or _now()
+        out = {pid: {"points_30d": 0, "changes_30d": 0, "changes_14d": 0, "points_90d": 0, "changes_90d": 0,
+                     "has_alert": False, "out_of_stock": False, "sale_on": False} for pid in product_ids}
+        if not product_ids:
+            return out
+        for r in self._all(
+                """with pts as (
+                       select product_id, ts, price, lag(price) over (partition by product_id order by ts) as prev
+                       from v_price_points where price_type = 'selling_price' and product_id = any(%(ids)s)
+                         and ts >= %(now)s - interval '90 days')
+                   select product_id,
+                          count(*) filter (where ts >= %(now)s - interval '30 days') as points_30d,
+                          count(*) filter (where ts >= %(now)s - interval '30 days' and prev is not null and price <> prev) as changes_30d,
+                          count(*) filter (where ts >= %(now)s - interval '14 days' and prev is not null and price <> prev) as changes_14d,
+                          count(*) as points_90d,
+                          count(*) filter (where prev is not null and price <> prev) as changes_90d
+                   from pts group by product_id""", {"ids": product_ids, "now": now}):
+            out[r["product_id"]].update({k: r[k] for k in r if k != "product_id"})
+        for r in self._all("select distinct product_id from user_targets where alerts_enabled and product_id = any(%s)",
+                           (product_ids,)):
+            out[r["product_id"]]["has_alert"] = True
+        for r in self._all(
+                """select distinct on (product_id) product_id, availability from price_observations
+                   where price_type = 'selling_price' and product_id = any(%s) order by product_id, observed_at desc""",
+                (product_ids,)):
+            out[r["product_id"]]["out_of_stock"] = (r["availability"] or "") in (
+                "OutOfStock", "SoldOut", "Discontinued", "PreOrder", "BackOrder")
+        today = now.date()
+        if self._one("""select 1 as x from sale_events where start_date is not null and end_date is not null
+                        and verification_status <> 'hypothetical'
+                        and %(d)s between start_date - 2 and end_date limit 1""", {"d": today}):
+            for sig in out.values():
+                sig["sale_on"] = True
+        return out
 
     def get_price_source(self, source_id: int) -> dict | None:
         return self._one("select * from product_sources where id = %s", (source_id,))
@@ -336,16 +376,50 @@ class Repository:
         return self._one(
             """insert into vendor_snapshots (product_id, vendor_id, vendor_source_id, fetched_at, expires_at,
                    fetch_status, price, mrp, currency, availability, seller_name, delivery_text, return_policy,
-                   warranty, error_message, extraction_report, emi_status, details)
+                   warranty, error_message, extraction_report, emi_status, details,
+                   delivery_fee, free_delivery, free_delivery_min_order, handling_fee, membership_program,
+                   membership_free_delivery, member_price, membership_text)
                values (%(product_id)s, %(vendor_id)s, %(vendor_source_id)s, %(fetched_at)s, %(expires_at)s,
                    %(fetch_status)s, %(price)s, %(mrp)s, %(currency)s, %(availability)s, %(seller_name)s,
                    %(delivery_text)s, %(return_policy)s, %(warranty)s, %(error_message)s, %(extraction_report)s,
-                   %(emi_status)s, %(details)s)
+                   %(emi_status)s, %(details)s,
+                   %(delivery_fee)s, %(free_delivery)s, %(free_delivery_min_order)s, %(handling_fee)s,
+                   %(membership_program)s, %(membership_free_delivery)s, %(member_price)s, %(membership_text)s)
                returning id""",
             {"price": None, "mrp": None, "currency": None, "availability": None, "seller_name": None,
              "delivery_text": None, "return_policy": None, "warranty": None, "error_message": None,
-             "emi_status": None, **s,
+             "emi_status": None, "delivery_fee": None, "free_delivery": None, "free_delivery_min_order": None,
+             "handling_fee": None, "membership_program": None, "membership_free_delivery": None,
+             "member_price": None, "membership_text": None, **s,
              "extraction_report": _json(s.get("extraction_report") or {}), "details": _json(s.get("details") or {})})["id"]
+
+    def insert_vendor_price_point(self, p: dict) -> bool:
+        """One row per successful vendor check (idempotent on vendor_source_id + observed_at)."""
+        cols = ["product_id", "vendor_id", "vendor_source_id", "observed_at", "price", "mrp", "in_stock", "availability",
+                "seller_name", "delivery_fee", "free_delivery", "free_delivery_min_order", "handling_fee", "member_price",
+                "effective_price", "delivery_known"]
+        vals = {c: p.get(c) for c in cols}
+        vals["delivery_known"] = bool(vals["delivery_known"])
+        return self._one(
+            f"""insert into vendor_price_points ({', '.join(cols)}) values ({', '.join('%(' + c + ')s' for c in cols)})
+                on conflict (vendor_source_id, observed_at) do nothing returning id""", vals) is not None
+
+    def vendor_price_points(self, product_id: str, *, since: datetime | None = None) -> list[dict]:
+        return self._all(
+            """select pp.*, v.name as vendor_name, vs.source_url, vs.is_active
+               from vendor_price_points pp join vendors v on v.id = pp.vendor_id
+               join product_vendor_sources vs on vs.id = pp.vendor_source_id
+               where pp.product_id = %(pid)s and (%(since)s::timestamptz is null or pp.observed_at >= %(since)s)
+               order by pp.vendor_source_id, pp.observed_at""", {"pid": product_id, "since": since})
+
+    def seller_price_series(self, product_id: str, *, since: datetime | None = None) -> list[dict]:
+        return self._all(
+            """select s.id as seller_id, s.seller_key, s.seller_name, s.is_active, vs.id as vendor_source_id,
+                      v.name as marketplace, o.observed_at, o.price, o.mrp, o.in_stock
+               from vendor_sellers s join vendor_seller_offers o on o.seller_id = s.id
+               join product_vendor_sources vs on vs.id = s.vendor_source_id join vendors v on v.id = vs.vendor_id
+               where s.product_id = %(pid)s and (%(since)s::timestamptz is null or o.observed_at >= %(since)s)
+               order by s.id, o.observed_at""", {"pid": product_id, "since": since})
 
     def insert_bank_offers(self, offers: list[dict]) -> int:
         cols = ["product_id", "vendor_id", "vendor_source_id", "category", "kind", "title", "description", "bank",
@@ -555,7 +629,7 @@ class Repository:
 
     def update_candidate(self, candidate_id: int, **fields) -> dict | None:
         allowed = {"status", "match_level", "match_evidence", "observed_price", "vendor_source_id", "last_checked_at",
-                   "decided_at", "decided_by", "error_message"}
+                   "decided_at", "decided_by", "error_message", "submitted_by"}
         if not fields or set(fields) - allowed:
             raise ValueError(f"unknown candidate fields {set(fields) - allowed}")
         sets = ", ".join(f"{k} = %({k})s" for k in fields)

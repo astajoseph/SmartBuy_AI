@@ -101,6 +101,26 @@ export interface VendorRow {
   vendor: string; vendor_id?: string; status: string; source_url?: string; displayed_price?: string | null;
   effective_upfront_price?: string | null; availability?: string | null; seller?: string | null; delivery?: string | null;
   emi_options?: EmiRow[]; notes?: string[]; freshness?: Freshness | null; message?: string | null;
+  delivery_cost?: string | null;
+  delivery_terms?: { delivery_fee: string | null; free_delivery: string | null; free_delivery_min_order: string | null; handling_fee: string | null };
+  membership?: { program: string; free_delivery: boolean | null; member_price: string | null; total_with_membership: string | null; text: string | null } | null;
+}
+export interface BuyTiming {
+  score: number | null; label: string; coverage: number; explanation: string; caveats?: string[];
+  components: { name: string; weight: number; favourable: number; note: string }[];
+}
+export interface VendorForecast { status: string; message?: string | null; predicted_price?: number | null; lower_price_bound?: number | null; upper_price_bound?: number | null; history: { recorded_days: number; span_days: number } }
+export interface VendorHistoryRow {
+  vendor_source_id: number; vendor_id: string; vendor: string; url: string; is_active: boolean;
+  stats: { checks: number; in_stock: boolean; availability: string | null; price: number | null; effective_price: number | null;
+    delivery_known: boolean; lowest: number | null; highest: number | null; change_7d_pct: number | null; change_30d_pct: number | null;
+    in_stock_share: number; last_check: string; age_hours: number; last_in_stock_at: string | null };
+  relation_to_main_price: { overlap_days: number; median_gap?: number; correlation?: number | null; note?: string | null };
+  forecast: VendorForecast;
+}
+export interface VendorPriceHistory {
+  product_id: string; vendors: VendorHistoryRow[]; notes: string[];
+  comparison: { cheapest_now: { vendor: string; effective_price: number; delivery_included: boolean } | null; spread_pct: number | null; compared: number; excluded: { vendor: string; reason: string }[] };
 }
 export interface OptionRow {
   vendor_id: string; vendor_name: string; kind: "upfront" | "emi"; total_cost: string | null; monthly_payment: string | null;

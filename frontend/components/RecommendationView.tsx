@@ -1,9 +1,10 @@
-import type { Recommendation } from "@/types/api";
+import type { BuyTiming, Recommendation } from "@/types/api";
 import { dateTime, money } from "@/lib/format";
 import { ActionBadge, Disclaimer, KindTag, Limitations, Stat } from "./ui";
 
 export default function RecommendationView({ rec }: { rec: Recommendation }) {
   const fc = rec.evidence.forecast as { status?: string; predicted_price?: number; lower_price_bound?: number; upper_price_bound?: number; message?: string } | undefined;
+  const timing = rec.evidence.buy_timing as BuyTiming | undefined;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -20,6 +21,18 @@ export default function RecommendationView({ rec }: { rec: Recommendation }) {
           value={fc?.status === "ok" ? money(fc.predicted_price) : "Insufficient data"}
           hint={fc?.status === "ok" ? `range ${money(fc.lower_price_bound)} – ${money(fc.upper_price_bound)}` : fc?.message} />
       </div>
+      {timing && timing.score !== null && (
+        <div className="rounded-lg border border-slate-200 p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-2xl font-semibold">{timing.score}<span className="text-sm font-normal text-slate-500">/100</span></span>
+            <span className="font-medium">Buy-timing: {timing.label}</span>
+            <KindTag kind="estimate" />
+          </div>
+          <ul className="mt-2 space-y-0.5 text-xs text-slate-600">{timing.components.map((c) => <li key={c.name}>• {c.note}</li>)}</ul>
+          {timing.caveats?.map((c, i) => <div key={i} className="mt-1 text-xs text-amber-700">{c}</div>)}
+          <div className="mt-1 text-[11px] text-slate-500">{timing.explanation}</div>
+        </div>
+      )}
       {rec.estimated_savings !== null && (
         <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
           <div className="flex items-center gap-2 font-medium">Estimated saving from waiting: {money(rec.estimated_savings)} <KindTag kind="estimate" /></div>

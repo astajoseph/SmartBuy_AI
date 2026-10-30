@@ -16,7 +16,7 @@ from app.extraction.registry import UnknownAdapter, resolve_adapter
 from app.api.assistant import message_out
 from app.security.permissions import CurrentUser, require_admin
 from app.security.url_validation import FetchError, RobotsDisallowed, SafeFetcher, UnsafeURLError, validate_url_syntax
-from app.services import discovery_service, vendor_service
+from app.services import discovery_service, schedule_service, vendor_service
 from app.services.alert_service import evaluate_product_alerts
 from app.services.event_service import sync_events
 from app.services.import_service import import_dashboard_ts
@@ -119,6 +119,11 @@ def cache_status(repo: Repository = Depends(get_repo)) -> list[dict]:
            from product_vendor_sources vs join vendors v on v.id = vs.vendor_id
            left join vendor_snapshots s on s.vendor_source_id = vs.id
            order by vs.id, s.fetched_at desc nulls last""")
+
+
+@router.get("/api/admin/collection/schedule", summary="How often each price source is checked now, and why")
+def collection_schedule(repo: Repository = Depends(get_repo)) -> list[dict]:
+    return schedule_service.schedule_overview(repo)
 
 
 # ---------------------------------------------------------------- seller discovery

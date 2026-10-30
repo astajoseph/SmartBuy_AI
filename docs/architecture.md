@@ -18,7 +18,7 @@
 | Trigger | schedule (`due_price_sources`) or admin "collect now" | a user asking for EMI / vendor / review analysis |
 | Code | `workers/price_collector.py` | `services/vendor_service.py` |
 | Tables read for URLs | `product_sources` (`source_type = 'price_history'`) | `product_vendor_sources` |
-| Caching | interval per source (default 6 h) | TTL per data kind + negative cache after failures |
+| Caching | interval per source (default 6 h, adapted — see below) | TTL per data kind + negative cache after failures |
 | Guarantee | never reads `product_vendor_sources` | only called from vendor/recommendation/assistant routes when requested |
 
 Both are enforced by tests in `backend/tests/test_vendor_on_demand.py`.
@@ -105,3 +105,12 @@ sub-sellers are shown separately (`GET /api/products/{id}/sellers`, database onl
   (robots.txt, public-address and size checks as for every fetch); only verified or admin-approved pages
   join the allowlist of registered hosts. Discovery runs only from the worker and the admin API.
 * The assistant is read-only: it has no tools that write, fetch arbitrary URLs or transact.
+
+
+## Adaptive check frequency (`services/schedule_service.py`)
+
+A source's configured interval is the baseline. It is halved for a product with a user price alert, a sale event on or
+starting within 2 days, or a volatile price (≥ 3 changes in 14 days); doubled / tripled for a price unchanged for 30 / 90
+days; tripled when out of stock; doubled / quadrupled after 3 / 6 failures in a row. Limits: never under 30 minutes,
+never over a day unless the configured interval is longer. Discovered shops that were not selling are re-read every 24 h
+instead of every run. `GET /api/admin/collection/schedule` shows each source's baseline, current interval and reasons.

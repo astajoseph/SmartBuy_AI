@@ -34,3 +34,4 @@ class RateLimiter:
 
 vendor_rate_limit = RateLimiter(max_calls=10, per_seconds=600)
 chat_rate_limit = RateLimiter(max_calls=30, per_seconds=600)
+submit_rate_limit = RateLimiter(max_calls=5, per_seconds=600)

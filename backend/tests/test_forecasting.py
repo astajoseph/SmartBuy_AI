@@ -58,7 +58,7 @@ def test_insufficient_history_returns_message():
 
 
 def test_forecast_has_interval_and_rounded_probability():
-    f = build_forecast(_frame(_steps(500)), 14, target=900)
+    f = build_forecast(_frame(_steps(500)), 14, target=900, now=START + timedelta(days=500))
     assert f["status"] == "ok"
     assert f["lower_price_bound"] <= f["predicted_price"] <= f["upper_price_bound"]
     p = f["probability_below_target"]
@@ -97,3 +97,12 @@ def test_prediction_outcome_logging(repo):
         o = c.execute("select * from prediction_outcomes where forecast_id = %s", (fid,)).fetchone()
     assert float(o["actual_price"]) == 1000.0 and o["within_interval"] is True and o["target_reached"] is False
     assert evaluate_due_forecasts(repo) == 0          # each forecast scored once
+
+
+def test_forecast_is_withheld_when_the_latest_price_is_stale():
+    frame = _frame(_steps(500))
+    fresh = build_forecast(frame, 14, now=START + timedelta(days=500))
+    stale = build_forecast(frame, 14, now=START + timedelta(days=500 + 20))
+    assert fresh["status"] == "ok"
+    assert stale["status"] == "stale" and stale["predicted_price"] is None
+    assert "20 days old" in stale["message"] or "days old" in stale["message"]

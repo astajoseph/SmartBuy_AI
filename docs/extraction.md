@@ -66,6 +66,22 @@ Notes from the inspection:
   unavailable, the failure is negative-cached for 15 minutes, and no evasion is attempted.
 * Tracking parameters (`gclid`, `utm_*`, `ref=`, `dib`…) were removed from the registered URLs.
 
+## Delivery charges and membership (`extraction/delivery.py`)
+
+Read from the visible text of every vendor page (generic adapter: whole page; Amazon: the buy-box delivery blocks;
+Myntra / Nykaa: the delivery strings in the embedded JSON). Only what is stated is stored; nothing is assumed free.
+
+* `delivery_fee`, `handling_fee`, `free_delivery` (for everyone), `free_delivery_min_order` ("free on orders over ₹499",
+  or "₹40 on orders below ₹499"), `membership_program` + `membership_free_delivery` + `member_price` (Prime, Flipkart Plus,
+  Myntra Insider, Nykaa Prive, Tata Neu, Swiggy One, Zepto Pass, Apollo Circle, or any "Join X" wording).
+* A "free delivery on your first order" promotion is ignored; "free delivery" next to a fee with no condition is
+  reported as unclear rather than free; member-only free delivery is never reported as free for everyone.
+* Checked on the live pages tracked on 2026-10-30: Amazon (free over ₹499), Apollo ("Free delivery (₹99) with Join Circle"
+  = members only — this found and fixed a bug); Tira, Nykaa and Myntra state no charge in the text we can read.
+* `finance/effective_price.delivery_cost`: delivery for an order at the price, or *unknown* with the reason (below a free
+  threshold with no stated charge → unknown). `emi_service` ranks vendors by price + delivery and lists a separate,
+  conditional "with membership" option.
+
 ## Seller lists (seller discovery, inspected 2026-10-24)
 
 | Adapter | Where | Notes |

@@ -17,7 +17,11 @@ over 7/30/90/365 days (unknown if no record within 30 days of the reference date
 
 ## Forecasts (`forecasting/`)
 
-Baselines: `naive_last`, `median_30d`, `median_90d`, `ewma_hl14d`, `damped_trend_60d`.
+Baselines: `naive_last`, `median_30d`, `median_90d`, `ewma_hl14d`, `damped_trend_60d`, plus the classical benchmarks
+`seasonal_naive_7d`, `ses_auto` (ETS A,N,N), `theta` (standard Theta) and `holt_damped` (ETS A,Ad,N). The benchmarks are
+implemented directly in `forecasting/baselines.py` (no statsforecast / sktime dependency in the cloud jobs); each is only a
+candidate and must pass the same backtest and the ≥ 2 % margin over `naive_last`. With more candidates the best backtest
+score is slightly optimistic, which is why the margin over `naive_last` is kept.
 
 * **Rolling-origin backtest**: origins every 7 days after ≥ 60 days of history; each forecast sees only
   `history[:origin]` (test-enforced); scored against the value `h` days later; origins whose start or
@@ -27,10 +31,29 @@ Baselines: `naive_last`, `median_30d`, `median_90d`, `ewma_hl14d`, `damped_trend
   second half of origins using quantiles from the first half. Coverage < 65 % adds a limitation.
 * **Insufficient data**: fewer than 20 recorded days or 120 known days → "Insufficient historical data for
   a reliable forecast."
+* **Stale listing**: if the latest recorded price is more than 14 days old the forecast is withheld (`status: "stale"`).
+  The recommendation also lists listing-reliability risks (sources failing 3+ times in a row, no fresh price for 7+ days,
+  out of stock) and caps confidence at MEDIUM when there are any.
 * Horizons 7 / 14 / 30 days (plus the user's deadline, clamped to 7–30, for recommendations).
 
 No complex model (exponential smoothing, gradient boosting, LSTM…) is used: none has been shown to beat
 these baselines on this data. Any future model must pass the same backtest.
+
+## Buy-timing score (`recommendations/timing_score.py`)
+
+A 0–100 score of how favourable buying *today* is, built only from the product's own history: position among the last
+year's days (35), against the 30-day median (20), distance above the lowest recorded price (15), a validated forecast
+(15) and a supported upcoming sale (15). Components without enough data are dropped and the weights renormalised;
+`coverage` reports how much of the score had data. Labels: ≥ 75 good time to buy, ≥ 55 fair, ≥ 35 neutral, else better to
+wait. It is descriptive, not a prediction. Returned in `evidence.buy_timing` of every recommendation.
+
+## Per-vendor price history and forecast (`services/vendor_history_service.py`)
+
+`GET /api/products/{id}/vendor-price-history` (database only): for each vendor — stock record, latest / effective price
+(with delivery), lowest / highest, 7- and 30-day change, how its price relates to the main price-history series (typical
+gap, correlation once ≥ 10 days overlap and both prices move) and the same validated forecaster run on that vendor's
+in-stock prices. Vendor histories are young, so most forecasts say "not enough history yet" — by design. The cheapest
+vendor *now* only considers active, in-stock vendors checked within 72 hours.
 
 ## Target-price probability
 

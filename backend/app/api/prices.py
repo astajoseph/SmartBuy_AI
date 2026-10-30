@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.database.repositories import Repository
 from app.dependencies import get_repo
+from app.services import vendor_history_service
 from app.services.price_service import chart_series
 
 router = APIRouter(prefix="/api/products", tags=["prices"])
@@ -30,3 +31,12 @@ def daily(product_id: str, price_type: str = Query("selling_price", pattern="^(s
             "rows": [{"date": r["date_ist"].isoformat(), "price": float(r["price"]), "is_recorded": r["is_recorded"],
                       "days_since_recorded": r["days_since_recorded"]} for r in rows],
             "note": "Rows with is_recorded=false repeat the last recorded price; they are not observations."}
+
+
+@router.get("/{product_id}/vendor-price-history",
+            summary="Price, stock and delivery-adjusted price per vendor over time (database only; never fetches a vendor)")
+def vendor_price_history(product_id: str, days: int = Query(180, ge=1, le=3650), horizon: int = Query(14, ge=7, le=30),
+                         repo: Repository = Depends(get_repo)) -> dict:
+    if not repo.get_product(product_id):
+        raise HTTPException(404, "Product not found")
+    return vendor_history_service.vendor_history(repo, product_id, days=days, horizon=horizon)

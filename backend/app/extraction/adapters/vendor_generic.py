@@ -15,6 +15,7 @@ import re
 from bs4 import BeautifulSoup
 
 from app.extraction import jsonld
+from app.extraction.delivery import parse_delivery
 from app.extraction.adapters.common import looks_blocked
 from app.extraction.base import Adapter, ExtractionContext, ExtractionResult
 from app.extraction.validation import InvalidValue, normalize_currency, parse_price
@@ -85,4 +86,5 @@ class VendorGenericAdapter(Adapter):
         m = re.search(r"(?:delivery|delivered)\s+(?:by|in)\s+([^.|]{3,40})", text, re.I)
         if m:
             result.vendor["delivery_text"] = m.group(0)[:80]
+        result.vendor.update(parse_delivery(text))          # fee, free-delivery threshold, membership benefits
         return result

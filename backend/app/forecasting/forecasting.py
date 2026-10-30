@@ -14,6 +14,7 @@ from app.services.price_service import MAX_CARRY_FORWARD_DAYS, daily_series, dat
 MODEL_VERSION = "baselines-1.0"
 HORIZONS = (7, 14, 30)
 INSUFFICIENT = "Insufficient historical data for a reliable forecast."
+STALE_FORECAST_DAYS = 14          # a forecast from a price this old is withheld: the listing may have changed since
 
 
 def build_forecast(df: pd.DataFrame, horizon: int, target: float | None = None,
@@ -27,6 +28,14 @@ def build_forecast(df: pd.DataFrame, horizon: int, target: float | None = None,
                 "predicted_price": None, "lower_price_bound": None, "upper_price_bound": None,
                 "probability_below_target": None, "validation_metrics": {},
                 "limitations": [INSUFFICIENT, "Needs >= 20 recorded days spanning >= 120 days."]}
+
+    age = quality.get("days_since_last_record", 0)
+    if age > STALE_FORECAST_DAYS:
+        msg = (f"The latest recorded price is {age:.0f} days old (over {STALE_FORECAST_DAYS}); the listing may have "
+               "changed, so no forecast is made until a fresh price is recorded.")
+        return {**base, "status": "stale", "message": msg, "forecast_method": "none",
+                "predicted_price": None, "lower_price_bound": None, "upper_price_bound": None,
+                "probability_below_target": None, "validation_metrics": {}, "limitations": [msg]}
 
     daily = daily_series(df)["price"]
     cmp = compare_baselines(daily, horizon)

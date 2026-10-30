@@ -18,12 +18,16 @@ from app.database.repositories import LOCK_NAMESPACE_VENDOR, Repository
 from app.extraction.base import ExtractionContext, ExtractionResult
 from app.extraction.browser import BrowserRenderer
 from app.extraction.registry import resolve_adapter
+from app.finance.effective_price import delivery_for
 from app.finance.emi_calculator import EmiTerms, calculate
 from app.security.url_validation import SafeFetcher
 from app.services import cache_service
 from app.services.review_service import score_review
+from app.services.stock import in_stock
 
 log = logging.getLogger(__name__)
+DELIVERY_FIELDS = ("delivery_fee", "free_delivery", "free_delivery_min_order", "handling_fee", "membership_program",
+                   "membership_free_delivery", "member_price", "membership_text")
 NEEDS = {"emi": ("vendor_price", "emi"), "reviews": ("review_aggregate", "review_samples"),
          "price": ("vendor_price",)}
 
@@ -161,7 +165,9 @@ def _store_result(repo: Repository, vs: dict, result: ExtractionResult, job_id: 
         "return_policy": v.get("return_policy"), "emi_status": v.get("emi_status") or ("available" if result.emi_plans else "unknown"),
         "details": {k: v.get(k) for k in ("stock_units", "discount_label", "discount_ends_at", "cod_available", "product_expiry")
                     if v.get(k) is not None},
+        **{k: v.get(k) for k in DELIVERY_FIELDS},
         "extraction_report": report})
+    _record_price_point(repo, vs, fetched, v)
     repo.insert_bank_offers([{**o, "product_id": vs["product_id"], "vendor_id": vs["vendor_id"], "vendor_source_id": vs["id"],
                               "fetched_at": fetched, "expires_at": fetched + cache_service.ttl("emi")}
                              for o in v.get("bank_offers") or []])
@@ -222,6 +228,24 @@ def _store_result(repo: Repository, vs: dict, result: ExtractionResult, job_id: 
                     extracted=len(offers) + len(reviews) + (1 if v.get("price") else 0),
                     inserted=len(offers) + len(reviews) + 1, details=report)
     return snap_id, None
+
+
+def _record_price_point(repo: Repository, vs: dict, fetched: datetime, v: dict) -> None:
+    """Append this check to the vendor's own price history (price, stock, delivery, effective price)."""
+    price, avail = v.get("price"), v.get("availability")
+    if price is None and avail is None:
+        return                                             # nothing was read from the page
+    delivery, known = None, False
+    if price is not None:
+        delivery, _ = delivery_for(v, price)
+        known = delivery is not None
+    repo.insert_vendor_price_point({
+        "product_id": vs["product_id"], "vendor_id": vs["vendor_id"], "vendor_source_id": vs["id"],
+        "observed_at": fetched, "price": price, "mrp": v.get("mrp"), "in_stock": in_stock(avail, price),
+        "availability": avail, "seller_name": v.get("seller_name"),
+        **{k: v.get(k) for k in ("delivery_fee", "free_delivery", "free_delivery_min_order", "handling_fee", "member_price")},
+        "effective_price": (price + delivery) if price is not None and delivery is not None else price,
+        "delivery_known": known})
 
 
 def _dec(v) -> Decimal | None:

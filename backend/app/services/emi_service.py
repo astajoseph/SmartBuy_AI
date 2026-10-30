@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from decimal import Decimal
 
-from app.finance.effective_price import Objective, PurchaseOption, effective_upfront_price, rank_options
+from app.finance.effective_price import Objective, PurchaseOption, delivery_for, effective_upfront_price, rank_options
 from app.extraction.vendor_offers import offer_value
 from app.finance.emi_calculator import EmiTerms, calculate, compare_tenures
 from app.services.vendor_service import VendorData
@@ -33,6 +33,22 @@ def _bank_offer_rows(vd: VendorData, price: Decimal | None, user_banks_l: set[st
     return rows
 
 
+def _membership_total(snap: dict, price: Decimal) -> tuple[Decimal | None, str]:
+    """Total with the vendor's membership (member price and/or free delivery for members). None if the page shows no
+    membership benefit or the member price is not below the displayed price."""
+    if not snap.get("membership_program"):
+        return None, ""
+    member_price = snap.get("member_price")
+    if member_price is not None and member_price > price:
+        member_price = None                                   # not a saving; ignore a mis-parsed figure
+    base = member_price if member_price is not None else price
+    delivery, _ = delivery_for(snap, base, as_member=True)
+    if delivery is None or (member_price is None and not snap.get("membership_free_delivery")):
+        return None, ""
+    return base + delivery, f"Requires {snap['membership_program']} membership" + (
+        f" (member price ₹{member_price})" if member_price is not None else " (free delivery for members)") + "."
+
+
 def build_comparison(vendor_data: list[VendorData], *, objective: Objective = "lowest_total_cost",
                      max_monthly: Decimal | None = None, preferred_tenure: int | None = None,
                      user_banks: list[str] | None = None) -> dict:
@@ -50,10 +66,17 @@ def build_comparison(vendor_data: list[VendorData], *, objective: Objective = "l
         price = snap.get("price")
         upfront = None
         notes = []
+        delivery = member_total = None
         if price is not None:
-            upfront, notes = effective_upfront_price(price)
+            delivery, dnotes = delivery_for(snap, price)
+            upfront, notes = effective_upfront_price(price, shipping=delivery)
+            notes = dnotes if delivery is None else notes + dnotes
             options.append(PurchaseOption(vendor_id=vs["vendor_id"], vendor_name=name, kind="upfront",
                                           total_cost=upfront, notes=notes))
+            member_total, member_note = _membership_total(snap, price)
+            if member_total is not None and member_total < upfront:
+                conditional.append(PurchaseOption(vendor_id=vs["vendor_id"], vendor_name=name, kind="upfront",
+                                                  total_cost=member_total, conditional=True, notes=[member_note]))
         else:
             notes.append("Vendor price could not be extracted.")
 
@@ -109,7 +132,13 @@ def build_comparison(vendor_data: list[VendorData], *, objective: Objective = "l
             "emi_status": snap.get("emi_status"), "emi_status_label": EMI_STATUS_LABEL.get(snap.get("emi_status"), snap.get("emi_status")),
             "bank_offers": offer_rows, "return_policy": snap.get("return_policy"), "details": details,
             "availability": snap.get("availability"), "seller": snap.get("seller_name"),
-            "delivery": snap.get("delivery_text"), "emi_options": emi_rows, "notes": notes,
+            "delivery": snap.get("delivery_text"), "delivery_cost": _s(delivery),
+            "delivery_terms": {k: _s(snap.get(k)) for k in ("delivery_fee", "free_delivery", "free_delivery_min_order",
+                                                            "handling_fee")},
+            "membership": {"program": snap.get("membership_program"), "free_delivery": snap.get("membership_free_delivery"),
+                           "member_price": _s(snap.get("member_price")), "total_with_membership": _s(member_total),
+                           "text": snap.get("membership_text")} if snap.get("membership_program") else None,
+            "emi_options": emi_rows, "notes": notes,
             "freshness": vd.freshness, "message": vd.message,
         })
 

@@ -409,5 +409,30 @@ and refused Apollo Pharmacy and Flipkart's image CDN. NAT64 answers are now judg
 * Tests: interval stays within budget, turn-taking, and a DB test that a run searches only when it is the product's turn.
   209 pass (with the test database up).
 
+**Vendor pricing, adaptive checking, timing score (from the improvement review).**
+1. **Delivery + membership pricing.** `extraction/delivery.py` reads delivery fee, handling fee, free-delivery threshold,
+   membership programme / member price / member-only free delivery from the vendor page text (generic, Amazon, Myntra,
+   Nykaa adapters). Stored on `vendor_snapshots`; vendor comparison now ranks by price + delivery (unknown delivery is
+   never assumed free) and lists a conditional "with membership" option. Checked on the live pages: this found that
+   Apollo's "Free delivery (₹99) with Join Circle" was read as free for everyone — fixed, with a regression test.
+2. **Per-vendor price history.** New table `vendor_price_points` (price, stock, delivery, effective price per check;
+   backfilled from existing snapshots), `services/vendor_history_service.py` and
+   `GET /api/products/{id}/vendor-price-history`: per-vendor stats, stock record, relation to the main price, forecast
+   with the same validated forecaster (withheld until the history is long enough), cheapest vendor now (delivery included).
+3. **Adaptive check frequency.** `services/schedule_service.py` (alerts, sales, volatility, flat prices, out of stock,
+   failures) used by the collector; discovered out-of-stock shops re-read daily; admin view
+   `/api/admin/collection/schedule`. Settings `ADAPTIVE_*`, `OUT_OF_STOCK_RECHECK_HOURS`.
+4. **Stale-listing guard + buy-timing score.** Forecast withheld when the latest price is > 14 days old; recommendations
+   list listing-reliability risks and cap confidence; `recommendations/timing_score.py` adds an explainable 0–100 score
+   (`evidence.buy_timing`, shown in the app).
+5. **More benchmark forecasters.** seasonal naive, SES/ETS, Theta, damped Holt in the same backtest (no new dependency).
+6. **User-submitted shop pages.** `POST /api/products/{id}/vendor-urls` (signed-in, 5 per 10 min): checked like a web-search
+   find (auto-added only on a strong in-stock match, otherwise queued for an admin, rejected if another product / pack).
+* Migration `20261030000001_vendor_pricing.sql` (snapshot columns, `vendor_price_points`, `discovery_candidates.submitted_by`).
+* Frontend: delivery / membership in the vendor table, "Price history by vendor", "suggest a shop" form, buy-timing panel.
+* Not done on purpose: global LightGBM/CatBoost (needs many related products; we track one), change-only price storage and
+  TimescaleDB (15 MB database; not used), retailer feeds / affiliate APIs (need partner accounts).
+* Tests: 235 pass (26 new in `tests/test_vendor_pricing.py`, one existing forecast test now passes `now`).
+
 **Pending:** check the Brave dashboard shows usage against the free credit (and set a spending limit there if it
 offers one); keep the limit at or below the free credit if Brave changes its pricing.

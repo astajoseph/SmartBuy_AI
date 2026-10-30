@@ -5,13 +5,14 @@ only through vendor_service (cache first).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import timedelta, datetime, timezone
 from decimal import Decimal
 
 from app.database.repositories import Repository
 from app.forecasting.forecasting import build_forecast, store_forecast
 from app.forecasting.seasonality import analyse_events, upcoming_events
-from app.recommendations.policies import POLICY_VERSION, EventSignal, PolicyInputs, decide
+from app.recommendations.policies import POLICY_VERSION, EventSignal, PolicyInputs, _supportive_event, decide
+from app.recommendations.timing_score import TimingInputs, buy_timing_score
 from app.recommendations.schemas import Recommendation, RecommendationRequest
 from app.services import emi_service, review_service, vendor_service
 from app.services.alert_service import notify_recommendation_change
@@ -107,6 +108,20 @@ async def recommend(repo: Repository, req: RecommendationRequest, *, user_id=Non
         vendor_requested=req.include_vendor_analysis, all_emi_over_limit=all_over, vendor_price_spread_pct=spread)
     d = decide(inputs)
 
+    stats365 = summary.get("daily_stats_last_365d") or {}
+    sale = _supportive_event(inputs, 30)
+    timing = buy_timing_score(TimingInputs(
+        current=cur.get("price"), percentile_365=summary.get("current_percentile_last_365d"),
+        median_30d=_median_30d(df, now), historical_low=inputs.historical_low,
+        forecast_point=fc.get("predicted_price") if fc["status"] == "ok" else None,
+        supported_sale_days=sale.days_until if sale else None,
+        volatility_pct=((stats365["p90"] - stats365["p10"]) / stats365["median"] * 100)
+        if stats365.get("median") else None, price_age_days=q.get("days_since_last_record")))
+    reliability = _listing_reliability(repo.list_price_sources(req.product_id), q.get("days_since_last_record"), inputs.available)
+    if reliability and d.confidence == "HIGH":
+        d.confidence = "MEDIUM"
+    d.risks = list(d.risks) + [r for r in reliability if r not in d.risks]
+
     limitations = list(summary.get("limitations", [])) + list(fc.get("limitations", [])) + seasonal["limitations"]
     if not req.include_vendor_analysis and not req.include_reviews:
         limitations.append("Vendor pages were not checked for this recommendation (no EMI/vendor/review analysis requested).")
@@ -126,6 +141,7 @@ async def recommend(repo: Repository, req: RecommendationRequest, *, user_id=Non
         savings_explanation=d.savings_explanation,
         confidence=d.confidence, reasoning=d.reasoning, risks=d.risks, suggested_action=d.suggested_action,
         evidence={"history": summary, "forecast": _public_forecast(fc), "seasonal": seasonal,
+                  "buy_timing": timing, "listing_reliability": reliability,
                   "upcoming_events": [_event_public(e) for e in upcoming],
                   "vendor_comparison": vendor_block, "reviews": review_block},
         data_sources=sources, data_freshness=freshness, limitations=limitations,
@@ -143,6 +159,25 @@ async def recommend(repo: Repository, req: RecommendationRequest, *, user_id=Non
             "request": req.model_dump()})
         notify_recommendation_change(repo, req.product_id, user_id, prev["recommended_action"] if prev else None, rec.action)
     return rec
+
+
+def _median_30d(df, now: datetime) -> float | None:
+    recent = df[df["ts"] >= now - timedelta(days=30)]["price"]
+    return float(recent.median()) if len(recent) else None
+
+
+def _listing_reliability(sources: list[dict], age_days: float | None, available: bool | None) -> list[str]:
+    """Reasons the listing behind the price may not be reliable right now (empty = no concern found)."""
+    out = []
+    failing = [s for s in sources if s["consecutive_failures"] >= 3]
+    if failing:
+        out.append(f"{len(failing)} price source(s) failed on their last {min(s['consecutive_failures'] for s in failing)}+ "
+                   "checks; the recorded price may be out of date.")
+    if age_days is not None and age_days > 7:
+        out.append(f"No fresh price for {age_days:.0f} days.")
+    if available is False:
+        out.append("The listing was out of stock at the last check, so the price may not be obtainable.")
+    return out
 
 
 def _public_forecast(fc: dict) -> dict:

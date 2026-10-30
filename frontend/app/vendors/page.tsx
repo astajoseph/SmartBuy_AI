@@ -6,7 +6,8 @@ import { useApi } from "@/hooks/useApi";
 import { usePrefs } from "@/hooks/usePrefs";
 import { api } from "@/lib/api";
 import { dateTime, money } from "@/lib/format";
-import type { ProductSummary, SellerList, VendorComparison } from "@/types/api";
+import { useAuth } from "@/components/AuthProvider";
+import type { ProductSummary, SellerList, VendorComparison, VendorPriceHistory } from "@/types/api";
 
 export default function VendorsPage() {
   const { data: products } = useApi<ProductSummary[]>("/api/products");
@@ -19,6 +20,22 @@ export default function VendorsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [showGone, setShowGone] = useState(false);
   const { data: sellers } = useApi<SellerList>(pid ? `/api/products/${pid}/sellers?include_inactive=${showGone}` : null);
+
+  const { data: history } = useApi<VendorPriceHistory>(pid ? `/api/products/${pid}/vendor-price-history` : null);
+  const { session } = useAuth();
+  const [shopUrl, setShopUrl] = useState("");
+  const [shopMsg, setShopMsg] = useState<{ tone: "info" | "error"; text: string } | null>(null);
+
+  async function suggest() {
+    if (!pid || !shopUrl.trim()) return;
+    setShopMsg(null);
+    try {
+      const r = await api<{ status: string; reasons?: string[]; message?: string }>(`/api/products/${pid}/vendor-urls`, { method: "POST", body: JSON.stringify({ url: shopUrl.trim() }) });
+      const text = { auto_added: "Added: this page matches the product and is now tracked.", pending: "Received. It could not be matched with certainty, so an administrator will review it.",
+        rejected: `Not added: ${r.reasons?.join("; ") || "it does not look like this product"}.`, already_tracked: r.message ?? "This page is already tracked.", error: "The page could not be read." }[r.status] ?? r.status;
+      setShopMsg({ tone: r.status === "auto_added" || r.status === "pending" ? "info" : "error", text }); setShopUrl("");
+    } catch (e) { setShopMsg({ tone: "error", text: (e as Error).message }); }
+  }
 
   async function load(refresh = false) {
     if (!pid) return;
@@ -70,6 +87,36 @@ export default function VendorsPage() {
             <ul className="mt-1 space-y-1 text-xs">{sellers.discovered_sites.map((d) => <li key={d.id}><a className="text-brand-600 underline" href={d.source_url} target="_blank" rel="noreferrer">{d.vendor_name}</a> · last in stock {dateTime(d.last_in_stock_at)} · included in Compare</li>)}</ul></div>}
         </Card>
       )}
+      {history && history.vendors.length > 0 && (
+        <Card title="Price history by vendor">
+          {history.comparison.cheapest_now && <p className="mb-2 text-sm">Cheapest in stock now: <strong>{history.comparison.cheapest_now.vendor}</strong> at {money(history.comparison.cheapest_now.effective_price)}{history.comparison.cheapest_now.delivery_included ? " including delivery" : ""}{history.comparison.spread_pct != null && <> · vendors differ by {history.comparison.spread_pct}%</>}</p>}
+          <div className="overflow-x-auto"><table className="table">
+            <thead><tr><th>Vendor</th><th>Latest</th><th>With delivery</th><th>Stock</th><th>7 d / 30 d</th><th>Range seen</th><th>Vs main price</th><th>Forecast</th></tr></thead>
+            <tbody>{history.vendors.map((v) => (
+              <tr key={v.vendor_source_id} className={v.is_active ? "" : "text-slate-400"}>
+                <td className="font-medium">{v.vendor}<div className="text-[11px] text-slate-500">{v.stats.checks} checks</div></td>
+                <td>{v.stats.in_stock ? money(v.stats.price) : "—"}</td>
+                <td>{v.stats.in_stock ? money(v.stats.effective_price) : "—"}{v.stats.in_stock && !v.stats.delivery_known && <div className="text-[11px] text-slate-500">delivery unknown</div>}</td>
+                <td className="text-xs">{v.stats.in_stock ? "In stock" : "Out of stock"}<div className="text-[11px] text-slate-500">{Math.round(v.stats.in_stock_share * 100)}% of checks in stock</div></td>
+                <td className="text-xs">{v.stats.change_7d_pct != null ? `${v.stats.change_7d_pct}%` : "—"} / {v.stats.change_30d_pct != null ? `${v.stats.change_30d_pct}%` : "—"}</td>
+                <td className="text-xs">{money(v.stats.lowest)} – {money(v.stats.highest)}</td>
+                <td className="text-xs">{v.relation_to_main_price.median_gap != null ? `${money(v.relation_to_main_price.median_gap, true)} typical` : "—"}{v.relation_to_main_price.correlation != null ? <div>moves together (r={v.relation_to_main_price.correlation})</div> : v.relation_to_main_price.note && <div className="text-[11px] text-slate-500">{v.relation_to_main_price.note}</div>}</td>
+                <td className="max-w-[14rem] text-xs">{v.forecast.status === "ok" ? `${money(v.forecast.predicted_price)} (${money(v.forecast.lower_price_bound)}–${money(v.forecast.upper_price_bound)})` : <span className="text-slate-500">Not enough history yet ({v.forecast.history.recorded_days} days recorded)</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+          {history.comparison.excluded.length > 0 && <p className="mt-2 text-xs text-slate-500">Not compared: {history.comparison.excluded.map((e) => `${e.vendor} (${e.reason})`).join(", ")}.</p>}
+        </Card>
+      )}
+      {pid && (
+        <Card title="Know another shop that sells this?">
+          {session ? (<div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[16rem] flex-1"><label className="label" htmlFor="shop">Link to the product page</label><input id="shop" className="input" placeholder="https://…" value={shopUrl} onChange={(e) => setShopUrl(e.target.value)} /></div>
+            <button className="btn-secondary" disabled={!shopUrl.trim()} onClick={suggest}>Suggest</button></div>
+          ) : <p className="text-sm text-slate-600">Sign in to suggest a shop page. It is checked automatically against the product (brand, name and pack size).</p>}
+          {shopMsg && <div className="mt-2"><Notice tone={shopMsg.tone}>{shopMsg.text}</Notice></div>}
+        </Card>
+      )}
       {err && <Notice tone="error">{err}</Notice>}
       {busy && <Loading what="Checking cache and vendor pages" />}
       {data?.message && <Notice>{data.message}</Notice>}
@@ -83,6 +130,8 @@ export default function VendorsPage() {
                   <td className="font-medium">{v.vendor}{v.source_url && <div><a className="text-xs text-brand-600 underline" href={v.source_url} target="_blank" rel="noreferrer">page</a></div>}</td>
                   <td><span className="font-semibold">{money(v.displayed_price)}</span> <KindTag kind={v.displayed_price ? "vendor" : "unknown"} />
                     {v.details?.discount_ends_at && <div className="text-[11px] text-amber-700">discount ends {dateTime(v.details.discount_ends_at)}</div>}
+                    {v.effective_upfront_price && v.delivery_cost != null && <div className="text-[11px] text-slate-700">{money(v.effective_upfront_price)} with delivery</div>}
+                    {v.membership && <div className="text-[11px] text-emerald-700">{v.membership.program}{v.membership.total_with_membership ? `: ${money(v.membership.total_with_membership)} for members` : ""}</div>}
                     {v.notes?.map((n, i) => <div key={i} className="text-[11px] text-slate-500">{n}</div>)}</td>
                   <td>{money(v.mrp)}{v.discount_pct && <div className="text-[11px] text-emerald-700">{v.discount_pct}% off</div>}</td>
                   <td className="max-w-[12rem] text-xs">{v.emi_status_label ?? "—"}</td>

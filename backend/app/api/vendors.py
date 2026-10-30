@@ -5,10 +5,12 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.database.repositories import Repository
-from app.dependencies import get_repo, vendor_rate_limit
-from app.services import emi_service, review_service, vendor_service
+from app.dependencies import get_repo, submit_rate_limit, vendor_rate_limit
+from app.security.permissions import CurrentUser, require_user
+from app.services import discovery_service, emi_service, review_service, vendor_service
 
 router = APIRouter(tags=["vendors"])
 
@@ -75,3 +77,19 @@ def vendor_offers(vendor_id: str, repo: Repository = Depends(get_repo)) -> list[
            where o.vendor_id = %s and o.expires_at > now()
              and (o.offer_valid_until is null or o.offer_valid_until > now())
            order by o.fetched_at desc limit 200""", (vendor_id,))
+
+
+class VendorUrlIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+
+
+@router.post("/api/products/{product_id}/vendor-urls", dependencies=[Depends(submit_rate_limit)],
+             summary="Suggest a shop page that sells this product (checked like a page found by web search)")
+async def submit_vendor_url(product_id: str, body: VendorUrlIn, repo: Repository = Depends(get_repo),
+                            user: CurrentUser = Depends(require_user)) -> dict:
+    try:
+        return await discovery_service.submit_url(repo, product_id, body.url, user.email or str(user.id))
+    except LookupError:
+        raise HTTPException(404, "Product not found") from None
+    except discovery_service.SubmissionError as e:
+        raise HTTPException(422, str(e)) from None

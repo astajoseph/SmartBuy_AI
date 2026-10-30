@@ -34,6 +34,46 @@ def effective_upfront_price(price: Decimal, *, instant_discount: Decimal | None 
     return total, notes
 
 
+def delivery_cost(price: Decimal, *, fee: Decimal | None = None, free: bool | None = None,
+                  free_min_order: Decimal | None = None, handling_fee: Decimal | None = None,
+                  member_free: bool | None = None, as_member: bool = False) -> tuple[Decimal | None, list[str]]:
+    """Delivery cost of one order at `price`, from what the vendor page states. None = cannot be determined
+    (the reason is in the notes); it is never assumed to be free."""
+    notes: list[str] = []
+    if as_member and member_free:
+        delivery: Decimal | None = Decimal("0")
+        notes.append("Free delivery for members.")
+    elif free:
+        delivery = Decimal("0")
+        notes.append("Free delivery.")
+    elif free_min_order is not None and price >= free_min_order:
+        delivery = Decimal("0")
+        notes.append(f"Free delivery on orders of ₹{free_min_order} or more.")
+    elif fee is not None:
+        delivery = fee
+        if free_min_order is not None:
+            notes.append(f"Delivery ₹{fee} below the ₹{free_min_order} free-delivery threshold.")
+        else:
+            notes.append(f"Delivery charge ₹{fee}.")
+    elif free_min_order is not None:
+        delivery = None
+        notes.append(f"Delivery is free from ₹{free_min_order}; below that a charge applies (amount not shown).")
+    else:
+        delivery = None
+        notes.append("Delivery charge not stated on the page; not included.")
+    if delivery is not None and handling_fee:
+        delivery += handling_fee
+        notes.append(f"Handling / platform charge ₹{handling_fee}.")
+    return delivery, notes
+
+
+def delivery_for(row: dict, price: Decimal, *, as_member: bool = False) -> tuple[Decimal | None, list[str]]:
+    """delivery_cost() from a vendor snapshot / price-point row."""
+    return delivery_cost(price, fee=row.get("delivery_fee"), free=row.get("free_delivery"),
+                         free_min_order=row.get("free_delivery_min_order"), handling_fee=row.get("handling_fee"),
+                         member_free=row.get("membership_free_delivery"), as_member=as_member)
+
+
 def rank_options(options: list[PurchaseOption], objective: Objective, *, max_monthly: Decimal | None = None,
                  preferred_tenure: int | None = None) -> dict:
     """Returns {'ranked': [...], 'excluded': [...]}. Options with unknown totals are ranked after known

@@ -37,6 +37,7 @@ from app.extraction.browser import BrowserRenderer
 from app.extraction.registry import resolve_adapter
 from app.security.url_validation import SafeFetcher, UnsafeURLError, host_matches_allowlist, validate_url_syntax
 from app.services import vendor_service
+from app.services.stock import OUT_OF_STOCK, in_stock  # noqa: F401 - re-exported
 from app.services.product_match import match_product, sizes
 from app.services.web_search import BraveSearch, SearchError, queries_for, search_client
 
@@ -51,7 +52,6 @@ NON_SHOP_HOSTS = {
     "pricehistory.app", "pricehistory.in", "pricebefore.com", "buyhatke.com", "smartprix.com", "mysmartprice.com",
     "pricee.com", "91mobiles.com", "keepa.com", "camelcamelcamel.com", "olay.com", "olay.co.in",
 }
-OUT_OF_STOCK = {"OutOfStock", "SoldOut", "Discontinued", "PreOrder", "BackOrder"}
 PRICE_LOW_FACTOR = Decimal("0.6")      # below 60% of the lowest price ever seen is suspicious (fake / wrong item)
 PRICE_HIGH_FACTOR = Decimal("1.5")     # above 150% of the MRP is a different pack or a reseller mark-up
 
@@ -77,10 +77,6 @@ class ProductReport:
     def as_dict(self) -> dict:
         return {k: getattr(self, k) for k in ("product_id", "status", "marketplace_sellers", "discovered_sources",
                                               "candidates", "errors")}
-
-
-def in_stock(availability: str | None, price) -> bool:
-    return price is not None and (availability or "InStock") not in OUT_OF_STOCK
 
 
 def clean_url(url: str) -> str:
@@ -191,7 +187,12 @@ async def _marketplace_sellers(repo: Repository, product: dict, deps: DiscoveryD
 
 async def _recheck_discovered(repo: Repository, product: dict, deps: DiscoveryDeps, rep: ProductReport) -> None:
     vdeps = vendor_service.VendorDeps(fetcher_factory=deps.fetcher_factory, browser_factory=deps.browser_factory)
+    now = datetime.now(timezone.utc)
+    pause = timedelta(hours=get_settings().out_of_stock_recheck_hours)
     for vs in repo.vendor_sources_for_discovery(product["id"], origins=("web_search", "admin_approved")):
+        checked, stocked = vs.get("last_checked_at"), vs.get("last_in_stock_at")
+        if checked and now - checked < pause and (stocked is None or checked - stocked > timedelta(minutes=1)):
+            continue                      # not selling at the last check: look again after the pause, not every run
         snap, error = await vendor_service.refresh_vendor_source(repo, vs, vdeps)
         stock = snap is not None and in_stock(snap.get("availability"), snap.get("price"))
         repo.mark_vendor_source_checked(vs["id"], in_stock=stock)
@@ -325,6 +326,41 @@ async def _read_images(result: ExtractionResult, page_host: str, deps: Discovery
             if sizes(text):
                 break                                     # a pack size was found; no need to read more
     return {"read": read, "text": " | ".join(texts) or None}
+
+
+class SubmissionError(ValueError):
+    """The submitted page cannot be considered (bad URL, not a shop, product unknown)."""
+
+
+async def submit_url(repo: Repository, product_id: str, url: str, submitted_by: str, *,
+                     deps: DiscoveryDeps | None = None) -> dict:
+    """A person submits a shop page for a product. It is checked exactly like a page found by web search: a strong
+    match that is in stock becomes a tracked source; an unclear one waits for an administrator; a different product
+    or pack size is rejected. Returns the outcome with the reasons."""
+    deps = deps or DiscoveryDeps()
+    product = repo.get_product(product_id)
+    if not product:
+        raise LookupError("product not found")
+    try:
+        validate_url_syntax(url)
+    except UnsafeURLError as e:
+        raise SubmissionError(str(e)) from None
+    url = clean_url(url)
+    host = urlsplit(url).hostname or ""
+    product_hosts = {(v["website_domain"] or "").lower() for v in repo.list_vendor_sources(product_id)} - {""}
+    product_hosts |= {re.sub(r"^www\.", "", h) for h in product_hosts}
+    existing = repo.vendor_source_by_url(product_id, url)
+    if existing and existing["is_active"]:
+        return {"url": url, "status": "already_tracked", "vendor_source_id": existing["id"]}
+    reason = _skip_host(host, product_hosts)
+    if reason == "not a shop":
+        raise SubmissionError("This looks like a search engine, social network or price-tracker site, not a shop.")
+    if reason:                                 # another page of a shop that is already tracked for this product
+        return {"url": url, "status": "already_tracked", "message": f"{host} is already tracked for this product."}
+    cand = repo.note_candidate(product_id, url, host, "user submitted", None)
+    repo.update_candidate(cand["id"], submitted_by=submitted_by)
+    out = await _verify(repo, product, cand, deps, price_range(repo, product_id), None, existing)
+    return {**out, "candidate_id": cand["id"]}
 
 
 def approve_candidate(repo: Repository, candidate_id: int, decided_by: str) -> dict:
