@@ -37,7 +37,7 @@ from app.extraction.browser import BrowserRenderer
 from app.extraction.registry import resolve_adapter
 from app.security.url_validation import SafeFetcher, UnsafeURLError, host_matches_allowlist, validate_url_syntax
 from app.services import vendor_service
-from app.services.stock import OUT_OF_STOCK, in_stock  # noqa: F401 - re-exported
+from app.services.stock import in_stock  # noqa: F401 - re-exported
 from app.services.product_match import match_product, sizes
 from app.services.web_search import BraveSearch, SearchError, queries_for, search_client
 

@@ -94,6 +94,7 @@ class FakeFetcher:
         self.pages = pages or {}
         self.fail = fail or {}
         self.requested: list[str] = []
+        self.posted: list[tuple[str, dict, bool]] = []
 
     async def fetch(self, url: str):
         from app.security.url_validation import FetchResult
@@ -106,6 +107,10 @@ class FakeFetcher:
             from app.security.url_validation import FetchError
             raise FetchError("HTTP 404", status=404)
         return FetchResult(url=url, final_url=url, status=p.status, headers={}, text=p.text, content=p.text.encode())
+
+    async def post(self, url: str, *, headers=None, check_robots: bool = True):
+        self.posted.append((url, dict(headers or {}), check_robots))
+        return await self.fetch(url)
 
     async def robots_allowed(self, url) -> bool:
         return True

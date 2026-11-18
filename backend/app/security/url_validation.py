@@ -188,15 +188,16 @@ class SafeFetcher:
             raise UnsafeURLError(f"Host {parsed.host} is not on the allowlist of registered sources")
         return parsed, self._resolver(parsed.host)
 
-    async def _send(self, client: httpx.AsyncClient, url: httpx.URL, ips: list[str]) -> httpx.Response:
+    async def _send(self, client: httpx.AsyncClient, url: httpx.URL, ips: list[str], *, method: str = "GET",
+                    headers: dict[str, str] | None = None) -> httpx.Response:
         if self._pin_ip:
             ip = ips[0]
             host_for_url = f"[{ip}]" if ":" in ip else ip
             pinned = url.copy_with(host=host_for_url)
-            req = client.build_request("GET", pinned, headers={"Host": url.netloc.decode()},
+            req = client.build_request(method, pinned, headers={**(headers or {}), "Host": url.netloc.decode()},
                                        extensions={"sni_hostname": url.host})
         else:
-            req = client.build_request("GET", url)
+            req = client.build_request(method, url, headers=headers)
         resp = await client.send(req, stream=True)
         try:
             chunks, total = [], 0
@@ -235,7 +236,8 @@ class SafeFetcher:
         rp = self._robots[key]
         return True if rp is None else rp.can_fetch(self.user_agent, str(url))
 
-    async def _fetch_once(self, url: str, *, check_robots: bool = True) -> FetchResult:
+    async def _fetch_once(self, url: str, *, check_robots: bool = True, method: str = "GET",
+                          headers: dict[str, str] | None = None) -> FetchResult:
         started = time.monotonic()
         current = url
         async with self._client() as client:
@@ -245,12 +247,14 @@ class SafeFetcher:
                     raise RobotsDisallowed(f"robots.txt disallows {parsed.path} on {parsed.host}")
                 await self.rate_limiter.wait(parsed.host)
                 try:
-                    resp = await self._send(client, parsed, ips)
+                    resp = await self._send(client, parsed, ips, method=method, headers=headers)
                 except httpx.TimeoutException as e:
                     raise FetchError(f"Timeout fetching {parsed.host}", transient=True) from e
                 except httpx.TransportError as e:
                     raise FetchError(f"Network error fetching {parsed.host}: {e.__class__.__name__}", transient=True) from e
                 if resp.is_redirect:
+                    if method != "GET":
+                        raise FetchError(f"Unexpected redirect on {method}", status=resp.status_code)
                     location = resp.headers.get("location")
                     if not location:
                         raise FetchError("Redirect without Location header", status=resp.status_code)
@@ -268,10 +272,20 @@ class SafeFetcher:
 
     async def fetch(self, url: str) -> FetchResult:
         """GET with retries (exponential backoff + jitter) for transient errors, 429 and 5xx."""
+        return await self._with_retries(url)
+
+    async def post(self, url: str, *, headers: dict[str, str] | None = None,
+                   check_robots: bool = True) -> FetchResult:
+        """POST (empty body) with the same address checks, size limit and retries as fetch().
+        check_robots=False skips robots.txt for this one request: callers pass it only on an explicit
+        per-source operator setting (see pricehistory_app history_source: api)."""
+        return await self._with_retries(url, method="POST", headers=headers, check_robots=check_robots)
+
+    async def _with_retries(self, url: str, **kw) -> FetchResult:
         attempt = 0
         while True:
             try:
-                res = await self._fetch_once(url)
+                res = await self._fetch_once(url, **kw)
                 if res.status == 429 or res.status >= 500:
                     raise FetchError(f"HTTP {res.status}", status=res.status, transient=True)
                 if res.status >= 400:

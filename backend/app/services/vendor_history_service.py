@@ -32,7 +32,8 @@ def _series(points: list[dict], col: str, only_in_stock: bool = True) -> pd.Seri
     rows = [(p["observed_at"], float(p[col])) for p in points
             if p.get(col) is not None and (p["in_stock"] or not only_in_stock)]
     if not rows:
-        return pd.Series(dtype=float)
+        # empty but time-indexed, so date comparisons (e.g. the 30-day window) still work
+        return pd.Series(dtype=float, index=pd.DatetimeIndex([], tz="UTC"))
     s = pd.Series([v for _, v in rows], index=pd.to_datetime([t for t, _ in rows], utc=True)).sort_index()
     return s
 

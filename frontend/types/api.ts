@@ -14,7 +14,7 @@ export interface Change { from?: number; to?: number; abs?: number; pct?: number
 
 export interface ProductSummary {
   id: string; name: string; brand: string | null; category: string | null; currency: string; image_url: string | null;
-  current: { price: number; as_of: string; kind: string } | null;
+  current: { price: number; as_of: string; kind: string; store?: string; store_url?: string } | null;
   current_offer_price: { price: number; as_of: string } | null;
   changes?: Record<string, Change | null>;
   historical_low?: { price: number; first_seen: string } | null;
@@ -117,6 +117,7 @@ export interface VendorHistoryRow {
     in_stock_share: number; last_check: string; age_hours: number; last_in_stock_at: string | null };
   relation_to_main_price: { overlap_days: number; median_gap?: number; correlation?: number | null; note?: string | null };
   forecast: VendorForecast;
+  points?: { t: string; price: number | null; effective_price: number | null; in_stock: boolean }[];
 }
 export interface VendorPriceHistory {
   product_id: string; vendors: VendorHistoryRow[]; notes: string[];

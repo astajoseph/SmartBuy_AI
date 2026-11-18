@@ -28,39 +28,47 @@ export function Stat({ label, value, hint, kind }: { label: string; value: React
 // Every figure on screen is one of these. The tag makes the distinction visible.
 export type DataKind = "observed" | "source" | "estimate" | "forecast" | "unknown" | "vendor";
 const KIND: Record<DataKind, [string, string]> = {
-  observed: ["Observed", "bg-emerald-50 text-emerald-700 ring-emerald-200"],
-  source: ["Source-stated", "bg-sky-50 text-sky-700 ring-sky-200"],
-  estimate: ["Estimate", "bg-amber-50 text-amber-800 ring-amber-200"],
-  forecast: ["Forecast", "bg-violet-50 text-violet-700 ring-violet-200"],
-  unknown: ["Unknown", "bg-slate-100 text-slate-600 ring-slate-200"],
-  vendor: ["Vendor page", "bg-teal-50 text-teal-700 ring-teal-200"],
+  observed: ["Recorded", "bg-good-50 text-good-700"],
+  source: ["Source-stated", "bg-brand-50 text-brand-700"],
+  estimate: ["Estimate", "bg-gold-100 text-gold-800"],
+  forecast: ["Forecast", "bg-slate-100 text-slate-700"],
+  unknown: ["Unknown", "bg-slate-100 text-slate-500"],
+  vendor: ["Store page", "bg-brand-50 text-brand-700"],
 };
 export function KindTag({ kind }: { kind: DataKind }) {
   const [label, cls] = KIND[kind];
-  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 ${cls}`}>{label}</span>;
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>{label}</span>;
 }
 
-const ACTION: Record<Action, [string, string]> = {
-  BUY_NOW: ["Buy now", "bg-emerald-600 text-white"],
-  WAIT: ["Wait", "bg-amber-500 text-white"],
-  MONITOR: ["Monitor", "bg-sky-600 text-white"],
-  BUY_IF_TARGET_REACHED: ["Buy if target reached", "bg-indigo-600 text-white"],
-  COMPARE_VENDORS: ["Compare vendors", "bg-teal-600 text-white"],
-  INSUFFICIENT_DATA: ["Insufficient data", "bg-slate-500 text-white"],
+// Shopper-facing wording for the recommendation engine's actions.
+export const ACTION: Record<Action, { label: string; cls: string; tone: "good" | "wait" | "neutral" | "brand" }> = {
+  BUY_NOW: { label: "Good time to buy", cls: "bg-good-50 text-good-700", tone: "good" },
+  WAIT: { label: "Wait for a drop", cls: "bg-gold-100 text-gold-800", tone: "wait" },
+  MONITOR: { label: "Keep watching", cls: "bg-slate-100 text-slate-700", tone: "neutral" },
+  BUY_IF_TARGET_REACHED: { label: "Buy at your target", cls: "bg-brand-50 text-brand-700", tone: "brand" },
+  COMPARE_VENDORS: { label: "Compare stores first", cls: "bg-brand-50 text-brand-700", tone: "brand" },
+  INSUFFICIENT_DATA: { label: "Not enough history", cls: "bg-slate-100 text-slate-600", tone: "neutral" },
 };
 export function ActionBadge({ action, large }: { action: Action; large?: boolean }) {
-  const [label, cls] = ACTION[action];
-  return <span className={`inline-block rounded-full font-semibold ${cls} ${large ? "px-4 py-1.5 text-base" : "px-2.5 py-0.5 text-xs"}`}>{label}</span>;
+  const a = ACTION[action];
+  return <span className={`inline-block rounded font-semibold ${a.cls} ${large ? "px-3 py-1.5 text-base" : "px-2 py-0.5 text-xs"}`}>{a.label}</span>;
 }
 
-export function StatusDot({ status }: { status: string }) {
-  const color = { healthy: "bg-emerald-500", degraded: "bg-amber-500", stale: "bg-amber-500", failing: "bg-rose-500", never_run: "bg-slate-400", disabled: "bg-slate-300" }[status] ?? "bg-slate-400";
-  return <span className="inline-flex items-center gap-1.5 text-xs text-slate-600"><span className={`h-2 w-2 rounded-full ${color}`} />{status.replace("_", " ")}</span>;
+// Plain text, only for states that need attention (no coloured dots).
+const HEALTH: Record<string, [string, string]> = {
+  healthy: ["Collecting normally", "text-slate-600"], degraded: ["Some checks failing", "text-gold-800"],
+  stale: ["Out of date", "text-gold-800"], failing: ["Collection failing", "text-alert-600"],
+  never_run: ["Not collected yet", "text-slate-500"], disabled: ["Disabled", "text-slate-500"],
+};
+export function HealthText({ status }: { status: string }) {
+  const [label, cls] = HEALTH[status] ?? [status.replace("_", " "), "text-slate-600"];
+  return <span className={`text-xs font-medium ${cls}`}>{label}</span>;
 }
+export const needsAttention = (status: string) => !["healthy", "disabled"].includes(status);
 
 export function Notice({ tone = "info", children }: { tone?: "info" | "warn" | "error"; children: ReactNode }) {
-  const cls = { info: "border-sky-200 bg-sky-50 text-sky-900", warn: "border-amber-200 bg-amber-50 text-amber-900", error: "border-rose-200 bg-rose-50 text-rose-900" }[tone];
-  return <div className={`rounded-lg border px-3 py-2 text-sm ${cls}`} role={tone === "error" ? "alert" : undefined}>{children}</div>;
+  const cls = { info: "border-brand-100 bg-brand-50 text-brand-900", warn: "border-gold-100 bg-gold-50 text-gold-800", error: "border-alert-50 bg-alert-50 text-alert-600" }[tone];
+  return <div className={`rounded-md border px-3 py-2 text-sm ${cls}`} role={tone === "error" ? "alert" : undefined}>{children}</div>;
 }
 
 export function Limitations({ items }: { items: string[] | undefined }) {

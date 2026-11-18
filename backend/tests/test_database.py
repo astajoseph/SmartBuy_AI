@@ -54,8 +54,11 @@ def test_product_source_relationships_and_vendor_separation(repo):
 def test_due_sources_respect_interval(repo):
     sid, _ = register_product(repo)
     repo.mark_source_attempt(sid, success=True)
-    assert repo.due_price_sources(datetime.now(timezone.utc)) == []
-    assert repo.due_price_sources(datetime.now(timezone.utc) + timedelta(hours=7))
+    later = datetime.now(timezone.utc) + timedelta(hours=7)
+    assert repo.due_price_sources(datetime.now(timezone.utc), history_mode="recurring") == []
+    assert repo.due_price_sources(later, history_mode="recurring")
+    # history-once (the default): a source that already loaded its history is never due again
+    assert repo.due_price_sources(later, history_mode="once") == []
 
 
 def test_daily_view_flags_carried_forward_days(repo):

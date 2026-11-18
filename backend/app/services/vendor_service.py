@@ -246,6 +246,41 @@ def _record_price_point(repo: Repository, vs: dict, fetched: datetime, v: dict) 
         **{k: v.get(k) for k in ("delivery_fee", "free_delivery", "free_delivery_min_order", "handling_fee", "member_price")},
         "effective_price": (price + delivery) if price is not None and delivery is not None else price,
         "delivery_known": known})
+    if price is not None and in_stock(avail, price):
+        continue_main_series(repo, vs, fetched, price, avail, v.get("seller_name"))
+
+
+def continuation_source(repo: Repository, product_id: str, vendor_id: str) -> dict | None:
+    """The product's price-history source whose adapter_config.continue_with_vendor names this store, if any.
+    Price-history sites are read once per product; this store's daily checks then extend the main price line, so the
+    chart, statistics, forecasts and sale-event analysis keep working on fresh data."""
+    for s in repo.list_price_sources(product_id):
+        if s["is_active"] and (s.get("adapter_config") or {}).get("continue_with_vendor") == vendor_id:
+            return s
+    return None
+
+
+def continue_main_series(repo: Repository, vs: dict, at: datetime, price: Decimal, availability: str | None,
+                         seller_name: str | None) -> int:
+    src = continuation_source(repo, vs["product_id"], vs["vendor_id"])
+    if src is None:
+        return 0
+    last_site = repo.last_source_price_ts(vs["product_id"])
+    if last_site is not None and at <= last_site:
+        return 0                     # the history site still covers this moment; don't mix two series there
+    return repo.insert_store_observation(vs["product_id"], src["id"], at, price, vs["vendor_id"], availability, seller_name)
+
+
+def backfill_continuation(repo: Repository, product_id: str) -> int:
+    """Add earlier checks of the continuation store that came after the last history-site price (idempotent)."""
+    n = 0
+    for vs in repo.list_vendor_sources(product_id):
+        if continuation_source(repo, product_id, vs["vendor_id"]) is None:
+            continue
+        for pt in repo.vendor_price_points(product_id):
+            if pt["vendor_source_id"] == vs["id"] and pt["in_stock"] and pt["price"] is not None:
+                n += continue_main_series(repo, vs, pt["observed_at"], pt["price"], pt["availability"], pt["seller_name"])
+    return n
 
 
 def _dec(v) -> Decimal | None:

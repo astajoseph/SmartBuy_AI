@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth, useAuth } from "@/components/AuthProvider";
 import { ActivityList, KIND_LABEL, Transcript } from "@/components/History";
-import { Card, Loading, Notice, StatusDot } from "@/components/ui";
+import { Card, HealthText, Loading, Notice } from "@/components/ui";
 import { useActivityPages } from "@/hooks/useActivityPages";
 import { api } from "@/lib/api";
 import { ago, dateTime, money } from "@/lib/format";
@@ -225,6 +225,7 @@ function Operations({ call }: { call: Call }) {
   const [jobs, setJobs] = useState<Row[] | null>(null);
   const [cache, setCache] = useState<Row[] | null>(null);
   const [cands, setCands] = useState<Row[] | null>(null);
+  const [saleDates, setSaleDates] = useState<Row[] | null>(null);
   const [out, setOut] = useState<string>("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -236,6 +237,7 @@ function Operations({ call }: { call: Call }) {
       const [h, j, c, d] = await Promise.all([call<Row[]>("/api/admin/sources/health"), call<Row[]>("/api/admin/jobs?limit=50"), call<Row[]>("/api/admin/cache-status"),
         call<Row[]>("/api/admin/discovery/candidates?limit=100")]);
       setHealth(h); setJobs(j); setCache(c); setCands(d);
+      setSaleDates(await call<Row[]>("/api/admin/sale-dates/candidates").catch(() => []));
     } catch (e) { setErr((e as Error).message); }
   }, [call]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -255,7 +257,7 @@ function Operations({ call }: { call: Call }) {
               <thead><tr><th>Product</th><th>Source</th><th>Health</th><th>Last success</th><th>Points</th><th>Last error</th><th /></tr></thead>
               <tbody>{health.map((h) => (
                 <tr key={String(h.id)}><td>{String(h.product_id)}</td><td className="max-w-xs break-all text-xs">{String(h.source_url)}<div className="text-slate-500">{String(h.adapter_name)} · every {String(h.collection_interval_minutes)} min</div></td>
-                  <td><StatusDot status={String(h.health)} /></td><td className="text-xs">{dateTime(h.last_success_at as string)}</td>
+                  <td><HealthText status={String(h.health)} /></td><td className="text-xs">{dateTime(h.last_success_at as string)}</td>
                   <td className="text-xs">{String(h.history_points)} history · {String(h.observations)} obs.</td><td className="max-w-xs text-xs text-rose-700">{(h.last_error as string) ?? ""}</td>
                   <td className="space-y-1"><button className="btn-secondary w-full" disabled={busy} onClick={() => run("Collecting", () => call(`/api/admin/collect/${h.product_id}`, { method: "POST" }))}>Collect now</button>
                     <button className="btn-secondary w-full" disabled={busy} onClick={() => run("Refreshing vendors", () => call(`/api/admin/refresh-vendor-data/${h.product_id}`, { method: "POST" }))}>Refresh vendors</button></td></tr>
@@ -281,6 +283,25 @@ function Operations({ call }: { call: Call }) {
                     </tr>
                   );
                 })}</tbody>
+              </table></div>
+            )}
+          </Card>
+          <Card title="Upcoming sale dates found on the web" actions={<button className="btn-secondary" disabled={busy} onClick={() => run("Searching for sale dates (about a minute)", () => call("/api/admin/sale-dates/run", { method: "POST" }))}>Search now</button>}>
+            <p className="mb-2 text-xs text-slate-500">Searched weekly by the daily PC task. Each find quotes the sentence it came from; nothing is used until you approve it. Approve adds the dates as “reported by media” with the page as the source, which lets the advice engine recommend waiting for that sale.</p>
+            {!saleDates?.length ? <p className="text-sm text-slate-500">No sale dates found yet.</p> : (
+              <div className="overflow-x-auto"><table className="table">
+                <thead><tr><th>Status</th><th>Sale</th><th>Dates</th><th>Evidence</th><th /></tr></thead>
+                <tbody>{saleDates.map((c) => (
+                  <tr key={String(c.id)}>
+                    <td className={`text-xs font-semibold ${c.status === "pending" ? "text-amber-700" : c.status === "approved" ? "text-emerald-700" : "text-slate-500"}`}>{String(c.status)}{c.decided_by ? <div className="font-normal text-slate-500">{String(c.decided_by)}</div> : null}</td>
+                    <td className="text-sm font-medium">{String(c.event_name)}<div className="text-xs font-normal text-slate-500">{c.retailer === "any" ? "most stores" : String(c.retailer)}</div></td>
+                    <td className="whitespace-nowrap text-xs">{String(c.start_date)}{c.end_date ? ` – ${String(c.end_date)}` : " (end not stated)"}</td>
+                    <td className="max-w-md text-xs">“{String(c.evidence)}”<div><a className="text-brand-600 underline" href={String(c.source_url)} target="_blank" rel="noreferrer">{new URL(String(c.source_url)).hostname}</a> · found by {c.method === "llm" ? "Gemini" : "date patterns"}</div></td>
+                    <td className="space-y-1">{c.status === "pending" && <>
+                      <button className="btn-secondary w-full" disabled={busy} onClick={() => run("Approving", () => call(`/api/admin/sale-dates/candidates/${c.id}/approve`, { method: "POST" }))}>Approve</button>
+                      <button className="btn-quiet w-full" disabled={busy} onClick={() => run("Rejecting", () => call(`/api/admin/sale-dates/candidates/${c.id}/reject`, { method: "POST" }))}>Reject</button></>}</td>
+                  </tr>
+                ))}</tbody>
               </table></div>
             )}
           </Card>

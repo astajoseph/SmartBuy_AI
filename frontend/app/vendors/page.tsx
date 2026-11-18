@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ProductPicker from "@/components/ProductPicker";
 import { Card, Disclaimer, KindTag, Loading, Notice } from "@/components/ui";
 import { useApi } from "@/hooks/useApi";
@@ -13,6 +13,8 @@ export default function VendorsPage() {
   const { data: products } = useApi<ProductSummary[]>("/api/products");
   const { prefs } = usePrefs();
   const [pid, setPid] = useState("");
+  // preselect from a product-page link (?product=<id>)
+  useEffect(() => { const p = new URLSearchParams(window.location.search).get("product"); if (p) setPid(p); }, []);
   const [objective, setObjective] = useState(prefs.objective);
   const [maxEmi, setMaxEmi] = useState("");
   const [data, setData] = useState<VendorComparison | null>(null);

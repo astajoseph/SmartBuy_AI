@@ -320,3 +320,13 @@ def test_submitting_a_url_requires_sign_in(repo):
     register_product(repo)
     r = TestClient(app).post("/api/products/test-product/vendor-urls", json={"url": "https://good.example/glow-50"})
     assert r.status_code == 401
+
+
+def test_vendor_stats_with_no_in_stock_prices():
+    # a listing that was only ever seen out of stock has no priced points; must not crash (was a TypeError)
+    now = datetime(2026, 11, 16, tzinfo=timezone.utc)
+    pts = [{"observed_at": now - timedelta(days=d), "price": Decimal("579"), "effective_price": Decimal("579"),
+            "mrp": None, "member_price": None, "in_stock": False, "availability": "OutOfStock",
+            "delivery_known": False} for d in (3, 1)]
+    st = vendor_history_service.vendor_stats(pts, now)
+    assert st["lowest"] is None and st["median_30d"] is None and st["in_stock"] is False

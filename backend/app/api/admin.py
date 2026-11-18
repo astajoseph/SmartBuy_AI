@@ -16,7 +16,7 @@ from app.extraction.registry import UnknownAdapter, resolve_adapter
 from app.api.assistant import message_out
 from app.security.permissions import CurrentUser, require_admin
 from app.security.url_validation import FetchError, RobotsDisallowed, SafeFetcher, UnsafeURLError, validate_url_syntax
-from app.services import discovery_service, schedule_service, vendor_service
+from app.services import discovery_service, sale_date_finder, schedule_service, vendor_service
 from app.services.alert_service import evaluate_product_alerts
 from app.services.event_service import sync_events
 from app.services.import_service import import_dashboard_ts
@@ -246,3 +246,33 @@ def set_disabled(user_id: UUID, body: DisabledIn, repo: Repository = Depends(get
     row = repo.set_profile_disabled(user_id, body.disabled)
     _audit(repo, admin, f"{'Disabled' if body.disabled else 'Re-enabled'} {target['email']}", target, disabled=body.disabled)
     return row
+
+
+# ---------------------------------------------------------------- sale-date finder
+@router.get("/api/admin/sale-dates/candidates", summary="Announced sale dates found on the web, waiting for a decision")
+def sale_date_candidates(status: str | None = Query(None, pattern="^(pending|approved|rejected)$"),
+                         repo: Repository = Depends(get_repo)) -> list[dict]:
+    return repo.list_sale_date_candidates(status=status)
+
+
+@router.post("/api/admin/sale-dates/candidates/{candidate_id}/approve", summary="Add the found dates as a sale event")
+def approve_sale_date(candidate_id: int, repo: Repository = Depends(get_repo),
+                      admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    try:
+        return sale_date_finder.approve(repo, candidate_id, _decider(admin))
+    except LookupError:
+        raise HTTPException(404, "Candidate not found") from None
+
+
+@router.post("/api/admin/sale-dates/candidates/{candidate_id}/reject", summary="Reject found sale dates")
+def reject_sale_date(candidate_id: int, repo: Repository = Depends(get_repo),
+                     admin: CurrentUser | None = Depends(require_admin)) -> dict:
+    try:
+        return sale_date_finder.reject(repo, candidate_id, _decider(admin))
+    except LookupError:
+        raise HTTPException(404, "Candidate not found") from None
+
+
+@router.post("/api/admin/sale-dates/run", summary="Search the web for upcoming sale dates now")
+async def run_sale_date_finder(repo: Repository = Depends(get_repo)) -> dict:
+    return await sale_date_finder.run(repo)

@@ -32,3 +32,7 @@ export function ago(v: string | null | undefined): string {
 }
 
 export const aspectLabel = (a: string) => a.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+const CAT_LABEL: Record<string, string> = { tvs: "TVs", "pc parts": "PC parts", "e-readers": "E-readers" };
+/** Display name for a product category ("tvs" -> "TVs"). */
+export const catLabel = (c: string) => CAT_LABEL[c.toLowerCase()] ?? c[0].toUpperCase() + c.slice(1);

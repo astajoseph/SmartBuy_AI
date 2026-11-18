@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     significant_drop_percent: float = 5.0
 
     default_collection_interval_minutes: int = Field(default=360, ge=30)
+    # once = a price-history site (pricehistory.app) is read once per product to load its past prices; current prices
+    # then come from SmartBuy's own daily store checks (app.workers.store_check). recurring = re-read it on its interval.
+    # A source can override with adapter_config.collection_mode.
+    price_history_mode: str = Field(default="once", pattern="^(once|recurring)$")
     # Adaptive checking: a source's configured interval is shortened for products with price alerts, a sale on, or a
     # volatile price, and lengthened for flat prices, out-of-stock items and sources that keep failing.
     adaptive_schedule: bool = True

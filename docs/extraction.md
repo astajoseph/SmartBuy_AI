@@ -33,7 +33,11 @@ python scripts/test_source.py <vendor URL> --kind vendor
 
 The history data endpoint is under `/api/`, which robots.txt disallows. SmartBuy:
 
-* never requests `/api/` directly with its HTTP client (the `SafeFetcher` enforces robots.txt);
+* never requests `/api/` directly with its HTTP client (the `SafeFetcher` enforces robots.txt),
+  **unless** a source sets `adapter_config.history_source: api` (operator decision 2026-11-16, set for
+  product 1). Then the adapter reads the page id and token from the page's inline script and sends one
+  `POST /api/price/<id>` per collection with plain HTTP, skipping robots.txt for that request only. No browser
+  is needed. If the call fails it falls back to the browser render below;
 * in the headless browser, blocks sub-requests to robots-disallowed paths of the page's host **by default**;
 * lets an operator turn that off per source with `adapter_config.respect_robots_for_subrequests: false`,
   which reproduces what `data/extract_dashboard_timeseries.py` (and a normal visitor's browser) does.

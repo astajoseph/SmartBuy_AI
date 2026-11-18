@@ -2,6 +2,8 @@
 None of these endpoints access vendor websites."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -30,8 +32,11 @@ def _product_or_404(repo: Repository, product_id: str) -> dict:
 def list_products(repo: Repository = Depends(get_repo)) -> list[dict]:
     out = []
     health = {h["product_id"]: h for h in repo.source_health()}
-    for p in repo.list_products():
-        s = history_summary(repo, p["id"])
+    products = repo.list_products()
+    # each summary is ~1 s of database round trips; run them side by side (pool has 10 connections)
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        summaries = list(ex.map(lambda pr: history_summary(repo, pr["id"]), products))
+    for p, s in zip(products, summaries):
         h = health.get(p["id"], {})
         out.append({
             "id": p["id"], "name": p["name"], "brand": p["brand"], "category": p["category"], "currency": p["currency"],

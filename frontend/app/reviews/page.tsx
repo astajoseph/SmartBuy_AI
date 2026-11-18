@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ProductPicker from "@/components/ProductPicker";
 import { Card, Limitations, Loading, Notice } from "@/components/ui";
 import { useApi } from "@/hooks/useApi";
@@ -87,6 +87,8 @@ function Block({ title, b }: { title: string; b: ReviewBlock }) {
 export default function ReviewsPage() {
   const { data: products } = useApi<ProductSummary[]>("/api/products");
   const [pid, setPid] = useState("");
+  // preselect from a product-page link (?product=<id>)
+  useEffect(() => { const p = new URLSearchParams(window.location.search).get("product"); if (p) setPid(p); }, []);
   const [data, setData] = useState<{ vendors: VendorReviews[]; message: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

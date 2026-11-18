@@ -14,12 +14,18 @@ products:
     price_source:
       url: https://pricehistory.app/p/olay-total-effects-day-cream-vitamin-b5-u4L6fhce
       adapter: pricehistory_app
-      collection_interval_minutes: 180   # matches the GitHub Actions schedule (every 3 h)
+      collection_interval_minutes: 180   # only used if collection_mode: recurring (history is read once by default)
       adapter_config:
         # The page draws its history chart from /api/price/<id>, a path robots.txt disallows.
         # false = let the headless browser load the page like a visitor would (same as
         # data/extract_dashboard_timeseries.py). Set true to honour robots.txt for those sub-requests.
         respect_robots_for_subrequests: false
+        # api = POST /api/price/<id> directly with plain HTTP (no browser needed; operator decision
+        # 2026-11-16). Falls back to the browser render when the call fails. "browser" = render only.
+        history_source: api
+        # After the one-time history load, this store's daily checks continue the main price line (chart, stats,
+        # forecasts, sale analysis). Use the same store the history tracks so the line stays one series.
+        continue_with_vendor: amazon-in
         wait_seconds: 6
     # Vendor pages: fetched ONLY when a user asks for vendor / EMI / review analysis (cache first).
     # URLs are the links you provided with ad-tracking parameters (gclid, utm_*, ref=...) removed.
@@ -40,14 +46,220 @@ products:
         adapter: nykaa
         expected_vendor_product_id: "261613"
 
-  # PRODUCT 2 - waiting for URLs
-  # - product_id: product-002
-  #   name: "<name>"
-  #   category: electronics
-  #   price_source:
-  #     url: <PRICE_HISTORY_URL_2>
-  #     adapter: auto
-  #   vendors:
-  #     - {vendor_id: <vendor-a>, name: "<Vendor A>", url: <VENDOR_A_URL>}
+  # ---- Electronics & appliances, added 2026-11-16. History: pricehistory.app (read once; Flipkart-history
+  # products have no continuation store, so their chart continues through the per-store lines).
 
-  # PRODUCT 3 - waiting for URLs
+  - product_id: apple-airpods-4-anc
+    name: "Apple AirPods 4 with Active Noise Cancellation"
+    brand: Apple
+    category: audio
+    currency: INR
+    expected_attributes:
+      retailer_product_code: ACCH4JE2BAJH75N3
+    price_source:
+      url: https://pricehistory.app/p/apple-airpods-4-wireless-earbuds-active-noise-OisCfhG5
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+    vendors:
+      - vendor_id: reliance-digital
+        name: Reliance Digital
+        url: https://www.reliancedigital.in/product/apple-airpods-4-active-noise-cancellation-with-adaptive-audio-and-transparency-mode-voice-isolation-hey-siri-and-siri-interactions-up-to-5-hours-of-listening-time-on-a-single-charge-up-to-4-hours-with-active-noise-cancellation-enabled-m0wgab-8584788
+        adapter: vendor_generic
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0DGJ6G1XG
+        adapter: amazon_in
+        expected_vendor_product_id: "B0DGJ6G1XG"
+
+  - product_id: apple-iphone-17-256gb-white
+    name: "Apple iPhone 17 (White, 256 GB)"
+    brand: Apple
+    category: mobiles
+    currency: INR
+    expected_attributes:
+      retailer_product_code: MOBHFN6YTSH3QRCZ
+    price_source:
+      url: https://pricehistory.app/p/apple-iphone-17-white-256-gb-PMcTHjG5
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+    vendors:
+      - vendor_id: vijay-sales
+        name: Vijay Sales
+        url: https://www.vijaysales.com/p/P261226/261230/apple-iphone-17-256gb-storage-white
+        adapter: vendor_generic
+      - vendor_id: reliance-digital
+        name: Reliance Digital
+        url: https://www.reliancedigital.in/product/apple-iphone-17-256-gb-white-mff8s2-9391633
+        adapter: vendor_generic
+
+  - product_id: samsung-galaxy-s25-ultra-256gb
+    name: "Samsung Galaxy S25 Ultra 5G (Titanium Whitesilver, 12 GB RAM, 256 GB)"
+    brand: Samsung
+    category: mobiles
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B0DSKL9MQ8
+    price_source:
+      url: https://pricehistory.app/p/samsung-galaxy-s25-ultra-5g-ai-smartphone-Y1piIomb
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0DSKL9MQ8
+        adapter: amazon_in
+        expected_vendor_product_id: "B0DSKL9MQ8"
+      - vendor_id: vijay-sales
+        name: Vijay Sales
+        url: https://www.vijaysales.com/p/237316/samsung-galaxy-s25-ultra-5g-12gb-ram-256gb-storage-titanium-whitesilver
+        adapter: vendor_generic
+
+  - product_id: sony-wh-1000xm5-black
+    name: "Sony WH-1000XM5 Wireless Noise Cancelling Headphones (Black)"
+    brand: Sony
+    category: audio
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B09XS7JWHH
+    price_source:
+      url: https://pricehistory.app/p/sony-wh-1000xm5-best-active-noise-cancelling-1n4hLvyp
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B09XS7JWHH
+        adapter: amazon_in
+        expected_vendor_product_id: "B09XS7JWHH"
+      - vendor_id: vijay-sales
+        name: Vijay Sales
+        url: https://www.vijaysales.com/p/P206834/206834/sony-wh-1000xm5-wireless-industry-leading-noise-canceling-headphones-with-auto-noise-canceling-up-to-30-hours-battery-life-black
+        adapter: vendor_generic
+      - vendor_id: reliance-digital
+        name: Reliance Digital
+        url: https://www.reliancedigital.in/product/sony-wh-1000xm5-bluetooth-headphone-with-30-hours-battery-life-black-l88xiz
+        adapter: vendor_generic
+
+  - product_id: lg-8kg-front-load-fhb1208z4m
+    name: "LG 8 kg 5 Star Wi-Fi Front Load Washing Machine (FHB1208Z4M)"
+    brand: LG
+    category: appliances
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B0DD45WVCM
+    price_source:
+      url: https://pricehistory.app/p/lg-8-kg-5-star-wi-fi-lF8L6nmb
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0DD45WVCM
+        adapter: amazon_in
+        expected_vendor_product_id: "B0DD45WVCM"
+
+  - product_id: samsung-55-crystal-4k-ua55u8100f
+    name: "Samsung 138 cm (55\") Crystal 4K Ultra HD Smart LED TV (UA55U8100F)"
+    brand: Samsung
+    category: tvs
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B0F63GQB55
+    price_source:
+      url: https://pricehistory.app/p/samsung-138-cm-55-inches-crystal-4k-ABEO8Hyp
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0F63GQB55
+        adapter: amazon_in
+        expected_vendor_product_id: "B0F63GQB55"
+
+  - product_id: logitech-mx-master-3s
+    name: "Logitech MX Master 3S Wireless Performance Mouse"
+    brand: Logitech
+    category: accessories
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B0CHYS7JJZ
+    price_source:
+      url: https://pricehistory.app/p/logitech-mx-master-3s-wireless-performance-mouse-Q2VLzcG5
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0CHYS7JJZ
+        adapter: amazon_in
+        expected_vendor_product_id: "B0CHYS7JJZ"
+      - vendor_id: vijay-sales
+        name: Vijay Sales
+        url: https://www.vijaysales.com/p/239381/logitech-mx-master-3s-wireless-performance-mouse-8k-dpi-ultra-fast-scrolling-quiet-clicks-track-on-glass-usb-c-bluetooth-multi-device-compatibility-graphite
+        adapter: vendor_generic
+
+  - product_id: samsung-990-pro-1tb
+    name: "Samsung 990 PRO 1 TB PCIe 4.0 NVMe M.2 SSD (MZ-V9P1T0)"
+    brand: Samsung
+    category: pc parts
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B0BHJF2VRN
+    price_source:
+      url: https://pricehistory.app/p/samsung-990-pro-ssd-1tb-pcie-4-HDyOIo2h
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0BHJF2VRN
+        adapter: amazon_in
+        expected_vendor_product_id: "B0BHJF2VRN"
+      - vendor_id: vishal-peripherals
+        name: Vishal Peripherals
+        url: https://vishalperipherals.com/products/samsung-990-pro-ssd-1tb-pcie-4-0-m-2-internal-solid-state-drive
+        adapter: vendor_generic
+
+  - product_id: kindle-paperwhite-16gb
+    name: "Amazon Kindle Paperwhite (16 GB, 2024)"
+    brand: Amazon
+    category: e-readers
+    currency: INR
+    expected_attributes:
+      retailer_product_code: B0DKTZ6592
+    price_source:
+      url: https://pricehistory.app/p/all-new-amazon-kindle-paperwhite-16-gb-olP0Ulw8
+      adapter: pricehistory_app
+      adapter_config:
+        respect_robots_for_subrequests: false
+        history_source: api
+        continue_with_vendor: amazon-in
+    vendors:
+      - vendor_id: amazon-in
+        name: Amazon.in
+        url: https://www.amazon.in/dp/B0DKTZ6592
+        adapter: amazon_in
+        expected_vendor_product_id: "B0DKTZ6592"
+

@@ -76,6 +76,23 @@ def data_quality(df: pd.DataFrame, now: datetime | None = None) -> dict:
     }
 
 
+STORE_FRESH_HOURS = 48
+
+
+def best_store_now(repo: Repository, product_id: str, now: datetime) -> dict | None:
+    """Cheapest in-stock price among stores checked in the last STORE_FRESH_HOURS (sticker price, comparable with the
+    history line). None when no store has a recent in-stock price."""
+    latest: dict[int, dict] = {}
+    for r in repo.vendor_price_points(product_id, since=now - timedelta(hours=STORE_FRESH_HOURS)):
+        latest[r["vendor_source_id"]] = r                 # rows are ordered by source, then time: keep the newest
+    live = [r for r in latest.values() if r["is_active"] and r["in_stock"] and r["price"] is not None]
+    if not live:
+        return None
+    r = min(live, key=lambda x: (float(x["price"]), -x["observed_at"].timestamp()))
+    return {"price": float(r["price"]), "as_of": r["observed_at"].isoformat(), "store": r["vendor_name"],
+            "url": r["source_url"], "stores_compared": len(live)}
+
+
 def history_summary(repo: Repository, product_id: str, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     df = points_frame(repo.price_points(product_id, "selling_price"))
@@ -94,6 +111,13 @@ def history_summary(repo: Repository, product_id: str, now: datetime | None = No
 
     last = df.iloc[-1]
     current = float(last["price"])
+    current_info = {"price": current, "as_of": last["ts"].isoformat(), "kind": last["point_kind"]}
+    best = best_store_now(repo, product_id, now)
+    if best and pd.Timestamp(best["as_of"]) >= last["ts"]:
+        # the history site is read once; after that the current price is SmartBuy's own cheapest recent store check
+        current = best["price"]
+        current_info = {"price": current, "as_of": best["as_of"], "kind": "store_check",
+                        "store": best["store"], "store_url": best["url"]}
     daily = daily_series(df, until=now.astimezone(IST).date())
     year = daily[daily.index >= daily.index.max() - pd.Timedelta(days=365)]
     changes = {}
@@ -125,7 +149,8 @@ def history_summary(repo: Repository, product_id: str, now: datetime | None = No
     return {
         "product_id": product_id,
         "currency": "INR",
-        "current": {"price": current, "as_of": last["ts"].isoformat(), "kind": last["point_kind"]},
+        "current": current_info,
+        "best_store_now": best,
         "current_offer_price": ({"price": float(latest_offer["price"]), "as_of": latest_offer["ts"].isoformat()}
                                 if latest_offer else None),
         "last_offer_price_seen": ({"price": float(stale_offer["price"]), "as_of": stale_offer["ts"].isoformat()}

@@ -15,9 +15,15 @@ Inspected 2026-10-16 against /p/beauty-joseon-sunscreen-spf-50-pa-sun-qXOOmq2h:
   sets respect_robots_for_subrequests: false (an explicit operator decision; see docs/extraction.md).
   Datasets: "Prices" (selling price, date-only x values) and "Offer Price" (sparse, nulls = no offer).
   Shaded x-axis bands are labelled retailer sale windows (e.g. "Big Billion Days").
+* history_source: api (adapter_config, operator decision 2026-11-16): call that endpoint directly with
+  plain HTTP instead of rendering the page. The page's inline script sends headers
+  {"page": <id>, "token": <64-hex>} taken from the same HTML; the JSON reply holds
+  History.Price / History.OfferPrice as [{x: "YYYY-MM-DD HH:MM:SS", y: price}] and Event as
+  [{Name, Start, End}] (the sale bands). Falls back to the browser if the call fails.
 """
 from __future__ import annotations
 
+import json
 import re
 from decimal import Decimal
 
@@ -27,6 +33,11 @@ from app.extraction import jsonld
 from app.extraction.adapters.common import history_from_charts, looks_blocked, sale_bands_from_markers
 from app.extraction.base import Adapter, CurrentPrice, ExtractionContext, ExtractionResult
 from app.extraction.validation import InvalidValue, normalize_currency, parse_price
+from app.security.url_validation import FetchError
+
+_API_RE = re.compile(r'fetch\("(https://pricehistory\.app/)"\s*\+\s*"api/price/"\s*\+\s*"([A-Za-z0-9_-]+)"')
+_TOKEN_RE = re.compile(r'FetchHeaders\.append\("token",\s*"([0-9a-fA-F]{32,128})"\)')
+_SERIES_MAP = {r"/ Prices$": "selling_price", r"/ Offer Price$": "offer_price"}
 
 _STAT_PATTERNS = {
     "lowest": r"Lowest Price\s+([\d,.]+)",
@@ -39,7 +50,7 @@ _OFFER_NAME_TO_TYPE = {"price": "selling_price", "offer price": "offer_price"}
 
 class PriceHistoryAppAdapter(Adapter):
     name = "pricehistory_app"
-    version = "1.0.0"
+    version = "1.1.0"
     kind = "price_history"
     hosts = ("pricehistory.app",)
     # offer_price is optional: the page only lists it while a bank/coupon offer exists
@@ -60,6 +71,9 @@ class PriceHistoryAppAdapter(Adapter):
         if not ctx.config.get("history", True):
             result.warnings.append("History collection disabled in adapter_config.")
             return result
+        if str(ctx.config.get("history_source", "browser")).lower() == "api":
+            if await self._history_from_api(page.text, ctx, result):
+                return result
         if ctx.browser is None:
             result.requires_js = True
             result.warnings.append("Price history is drawn by JavaScript; no browser available, history skipped.")
@@ -71,8 +85,7 @@ class PriceHistoryAppAdapter(Adapter):
                                             click_ranges=ctx.config.get("click_ranges"))
         result.requires_js = True
         currency = result.product.get("currency") or "INR"
-        history_from_charts(result, rendered.charts, ctx.config.get("series_map") or {
-            r"/ Prices$": "selling_price", r"/ Offer Price$": "offer_price"}, currency)
+        history_from_charts(result, rendered.charts, ctx.config.get("series_map") or _SERIES_MAP, currency)
         sale_bands_from_markers(result, rendered.markers, result.product.get("retailer"))
         if not result.history:
             if rendered.blocked_requests:
@@ -82,6 +95,37 @@ class PriceHistoryAppAdapter(Adapter):
             else:
                 result.warnings.append("Chart rendered but no price series matched series_map.")
         return result
+
+    async def _history_from_api(self, html: str, ctx: ExtractionContext, result: ExtractionResult) -> bool:
+        """True when the API returned usable history; on failure adds a warning and returns False."""
+        m, t = _API_RE.search(html), _TOKEN_RE.search(html)
+        if not m or not t:
+            result.warnings.append("history_source=api: page id / token not found in the page script; layout changed?")
+            return False
+        code = m.group(2)
+        try:
+            res = await ctx.fetcher.post(f"{m.group(1)}api/price/{code}", check_robots=False, headers={
+                "Content-Type": "application/json", "page": code, "token": t.group(1),
+                "Origin": "https://pricehistory.app", "Referer": result.url})
+            data = json.loads(res.text)
+        except (FetchError, ValueError) as e:
+            result.warnings.append(f"history_source=api: call failed ({e}); trying the browser.")
+            return False
+        hist = data.get("History") if isinstance(data, dict) else None
+        if not isinstance(hist, dict) or not isinstance(hist.get("Price"), list):
+            result.warnings.append("history_source=api: reply has no History.Price list; trying the browser.")
+            return False
+        result.requires_js = False
+        charts = [{"chart": "api", "name": label, "x": [pt.get("x") for pt in pts if isinstance(pt, dict)],
+                   "y": [pt.get("y") for pt in pts if isinstance(pt, dict)]}
+                  for label, pts in (("Prices", hist.get("Price")), ("Offer Price", hist.get("OfferPrice")))
+                  if isinstance(pts, list)]
+        history_from_charts(result, charts, ctx.config.get("series_map") or _SERIES_MAP,
+                            result.product.get("currency") or "INR")
+        markers = [{"kind": "band", "axis": "x", "label": e.get("Name"), "from": e.get("Start"), "to": e.get("End")}
+                   for e in data.get("Event") or [] if isinstance(e, dict)]
+        sale_bands_from_markers(result, markers, result.product.get("retailer"))
+        return bool(result.history)
 
     def _parse_static(self, html: str, result: ExtractionResult) -> None:
         prods = jsonld.products(html)

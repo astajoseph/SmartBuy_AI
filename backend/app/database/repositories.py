@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
+from app.config import get_settings
 from app.database.client import Database
 from app.extraction.base import CurrentPrice, PricePoint, SaleBand
 from app.extraction.validation import retailer_key
@@ -119,20 +120,24 @@ class Repository:
                and (%(pid)s::text is null or product_id = %(pid)s) order by id""", {"pid": product_id})
 
     def due_price_sources(self, now: datetime | None = None, failure_retry_minutes: int = 30,
-                          interval_minutes: int | None = None) -> list[dict]:
+                          interval_minutes: int | None = None, history_mode: str | None = None) -> list[dict]:
         """Enabled price-history sources whose interval has elapsed. Vendor sources are never returned.
         interval_minutes replaces each source's own interval (the adaptive scheduler passes its floor and then
-        applies the per-source adaptive interval itself)."""
+        applies the per-source adaptive interval itself). history_mode 'once' (default: settings.price_history_mode)
+        skips sources that already loaded their history, unless adapter_config.collection_mode = 'recurring'."""
+        mode = history_mode or get_settings().price_history_mode
         return self._all(
             """select s.* from product_sources s join products p on p.id = s.product_id
                where s.source_type = 'price_history' and s.is_active and p.is_active
+                 and (s.last_success_at is null
+                      or coalesce(s.adapter_config->>'collection_mode', %(mode)s) = 'recurring')
                  and (s.last_success_at is null
                       or s.last_success_at + make_interval(mins => coalesce(%(iv)s::int, s.collection_interval_minutes)) <= %(now)s)
                  and (s.last_attempt_at is null
                       or s.last_attempt_at + make_interval(mins => %(retry)s) <= %(now)s
                       or s.last_success_at >= s.last_attempt_at)
                order by s.last_success_at nulls first, s.id""",
-            {"now": now or _now(), "retry": failure_retry_minutes, "iv": interval_minutes})
+            {"now": now or _now(), "retry": failure_retry_minutes, "iv": interval_minutes, "mode": mode})
 
     def schedule_signals(self, product_ids: list[str], now: datetime | None = None) -> dict[str, dict]:
         """Per product: what decides how often it should be checked (price movement, alerts, stock, sales)."""
@@ -238,11 +243,19 @@ class Repository:
                            when s.last_success_at is null and s.last_attempt_at is null then 'never_run'
                            when s.consecutive_failures >= 3 then 'failing'
                            when s.consecutive_failures > 0 then 'degraded'
+                           -- history read once: "stale" means the daily store checks stopped (no check for 48 h)
+                           when coalesce(s.adapter_config->>'collection_mode', %(mode)s) = 'once' then
+                                case when exists (select 1 from product_vendor_sources vs
+                                                  where vs.product_id = s.product_id and vs.is_active)
+                                      and coalesce((select max(pp.observed_at) from vendor_price_points pp
+                                                    where pp.product_id = s.product_id), 'epoch'::timestamptz)
+                                          < now() - interval '48 hours'
+                                     then 'stale' else 'healthy' end
                            when s.last_success_at < now() - make_interval(mins => 3 * s.collection_interval_minutes) then 'stale'
                            else 'healthy' end as health,
                       (select count(*) from historical_price_points h where h.source_id = s.id) as history_points,
                       (select count(*) from price_observations o where o.source_id = s.id) as observations
-               from product_sources s order by s.id""")
+               from product_sources s order by s.id""", {"mode": get_settings().price_history_mode})
 
     def record_source_test(self, kind: str, ref: int | None, report: dict, success: bool) -> None:
         self._one(
@@ -283,6 +296,25 @@ class Repository:
                      c.seller_name, c.discount_percent, extraction_version))
                 n += cur.rowcount
         return n
+
+    def insert_store_observation(self, product_id: str, source_id: int, observed_at: datetime, price: Decimal,
+                                 vendor_id: str, availability: str | None = None, seller_name: str | None = None) -> int:
+        """A store check that continues the product's main price line (see vendor_service.continue_main_series).
+        Stored as a selling-price observation with data_origin 'store_check:<vendor_id>'."""
+        with self.db.connection() as conn, conn.transaction():
+            return conn.execute(
+            """insert into price_observations (product_id, source_id, observed_at, price, price_type, currency,
+                   availability, seller_name, data_origin, extraction_version)
+               values (%s, %s, %s, %s, 'selling_price', 'INR', %s, %s, %s, 'store_check')
+               on conflict (source_id, price_type, observed_at) do nothing""",
+            (product_id, source_id, observed_at, price, availability, seller_name, f"store_check:{vendor_id}")).rowcount
+
+    def last_source_price_ts(self, product_id: str) -> datetime | None:
+        """Newest price that came from the price-history site itself (not from store checks)."""
+        row = self._one(
+            """select max(ts) as ts from v_price_points where product_id = %s and price_type = 'selling_price'
+               and data_origin not like 'store_check:%%'""", (product_id,))
+        return row["ts"] if row else None
 
     def insert_source_stats(self, product_id: str, source_id: int, observed_at: datetime,
                             stats: dict[str, Decimal], currency: str) -> int:
@@ -353,6 +385,42 @@ class Repository:
                 "verification_status": "observed_on_source_chart",
                 "notes": "Sale window drawn as a shaded band on the price-history source's chart."})
         return n
+
+    # ---- sale-date finder (services/sale_date_finder.py)
+    def insert_sale_date_candidate(self, c: dict) -> int | None:
+        row = self._one(
+            """insert into sale_event_candidates (event_name, retailer, event_type, start_date, end_date, source_url,
+                                                   source_title, evidence, method)
+               values (%(event_name)s, %(retailer)s, %(event_type)s, %(start_date)s, %(end_date)s, %(source_url)s,
+                       %(source_title)s, %(evidence)s, %(method)s)
+               on conflict (event_name, retailer, start_date, source_url) do nothing returning id""", c)
+        return row["id"] if row else None
+
+    def list_sale_date_candidates(self, status: str | None = None, limit: int = 200) -> list[dict]:
+        return self._all(
+            """select * from sale_event_candidates where (%(st)s::text is null or status = %(st)s)
+               order by (status = 'pending') desc, found_at desc limit %(lim)s""", {"st": status, "lim": limit})
+
+    def get_sale_date_candidate(self, cid: int) -> dict | None:
+        return self._one("select * from sale_event_candidates where id = %s", (cid,))
+
+    def decide_sale_date_candidate(self, cid: int, status: str, by: str, sale_event_id: int | None = None) -> None:
+        self._one("""update sale_event_candidates set status = %s, decided_at = now(), decided_by = %s,
+                     sale_event_id = coalesce(%s, sale_event_id) where id = %s returning id""",
+                  (status, by, sale_event_id, cid))
+
+    def sale_event_id(self, event_name: str, retailer: str, start: date) -> int | None:
+        row = self._one("select id from sale_events where event_name = %s and retailer = %s and start_date = %s",
+                        (event_name, retailer, start))
+        return row["id"] if row else None
+
+    def record_sale_date_run(self, r: dict) -> None:
+        self._one("""insert into sale_date_search_runs (events, queries, pages, candidates, note)
+                     values (%(events)s, %(queries)s, %(pages)s, %(candidates)s, %(note)s) returning id""", r)
+
+    def last_sale_date_run(self) -> datetime | None:
+        row = self._one("select max(ran_at) as t from sale_date_search_runs")
+        return row["t"] if row else None
 
     def list_sale_events(self, *, retailer: str | None = None, from_date: date | None = None) -> list[dict]:
         return self._all(

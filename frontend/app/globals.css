@@ -6,14 +6,19 @@
 body { @apply bg-slate-50 text-slate-900 antialiased; }
 
 @layer components {
-  .card { @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm; }
-  .card-title { @apply text-sm font-semibold uppercase tracking-wide text-slate-500; }
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-50; }
+  .card { @apply rounded-lg border border-slate-200 bg-white p-5; }
+  .card-title { @apply text-base font-bold text-slate-900; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50; }
   .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700; }
-  .btn-secondary { @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-100; }
-  .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500; }
-  .label { @apply mb-1 block text-xs font-medium text-slate-600; }
+  .btn-buy { @apply btn bg-gold-500 text-slate-900 hover:bg-gold-600; }
+  .btn-secondary { @apply btn border border-brand-600 bg-white text-brand-600 hover:bg-brand-50; }
+  .btn-quiet { @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-100; }
+  .input { @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600; }
+  .label { @apply mb-1 block text-xs font-semibold text-slate-600; }
   .table { @apply w-full text-left text-sm; }
-  .table th { @apply border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500; }
-  .table td { @apply border-b border-slate-100 px-3 py-2 align-top; }
+  .table th { @apply border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  .table td { @apply border-b border-slate-100 px-3 py-2.5 align-top; }
+  .tag { @apply inline-block rounded px-2 py-0.5 text-xs font-semibold; }
+  .crumb { @apply text-xs text-slate-500; }
+  .crumb a { @apply hover:text-brand-600 hover:underline; }
 }

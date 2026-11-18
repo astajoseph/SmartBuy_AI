@@ -31,10 +31,17 @@ User question ─► assistant ─► recommendation engine ─► needs EMI/ven
 
 1. **Register** products in `config/products.yaml` — one *price-history URL* per product plus any
    number of *vendor URLs*. No code change is needed to add products or vendors.
-2. **Collect** — the scheduler (`app/workers/scheduler.py`, run by GitHub Actions every 3 h) visits only
-   the price-history URLs, on each product's interval (180 min for product 1). It stores the source's historical chart points with
-   their original dates, the current price/offer price with our own observation timestamp, the
-   source's stated lowest/average/highest/MRP, and sale windows drawn on the chart.
+2. **Collect** — the price-history URL (e.g. pricehistory.app) is read **once per product** to load its past
+   prices, sale windows and stated lowest/average/highest/MRP (`price_history_mode = "once"`; the GitHub Actions
+   scheduler only picks up new products). From then on **current prices come from SmartBuy's own daily store
+   checks** (`app/workers/store_check.py`), run from the owner's PC by the Windows scheduled task
+   "SmartBuy daily price check" (`scripts/run_daily_local.ps1`, installed with `scripts/install_daily_task.ps1`;
+   Amazon and Myntra block GitHub's servers). The product's current price is the cheapest in-stock store price
+   checked in the last 48 h; the product page chart can overlay any store's own price line.
+   **Sale events:** past sale windows come from the history site's chart (loaded once) and, from then on, from the
+   continuation store's daily prices (`adapter_config.continue_with_vendor`). Dates of upcoming sales are found by a
+   weekly web search (`app/workers/sale_dates.py`, part of the daily PC task): each find quotes its source sentence and
+   waits on the Admin page; approving it adds the dates as `reported_by_media`, which lets the advice engine say WAIT.
 3. **Analyse** — history statistics with data-quality flags, baseline forecasts validated by
    chronological backtests, Indian sale-event windows, weekday/month patterns (only claimed when a
    statistical test and enough data support them).

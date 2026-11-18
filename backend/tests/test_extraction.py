@@ -1,3 +1,4 @@
+import json
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -155,3 +156,49 @@ def test_pricehistory_single_unnamed_offer_is_selling_price():
     r = _run(PriceHistoryAppAdapter(), FakeFetcher({PH_URL: FakePage(200, html)}), FakeBrowser(charts=PH_CHARTS))
     assert [(c.price_type, c.price) for c in r.current_prices] == [("selling_price", Decimal("1050.00"))]
     assert "offer_price" not in r.missing_fields() and "current_price" not in r.missing_fields()
+
+
+# ---- history_source: api (SYNTHETIC page script + reply shaped like pricehistory.app, inspected 2026-11-16)
+PH_API_URL = "https://pricehistory.app/api/price/abc123"
+PH_API_SCRIPT = ('<script>var FetchHeaders=new Headers();FetchHeaders.append("page","abc123");'
+                 'FetchHeaders.append("token","' + "ab" * 32 + '");function FetchPrices(){fetch("https://pricehistory.app/" '
+                 '+ "api/price/" + "abc123",{method:"post",headers:FetchHeaders})}</script>')
+PH_API_REPLY = json.dumps({
+    "History": {"Price": [{"x": "2025-01-01 10:00:00", "y": 1100}, {"x": "2025-02-01 10:00:00", "y": 990},
+                          {"x": "not a date", "y": 5}],
+                "OfferPrice": [{"x": "2025-01-01 10:00:00", "y": None}, {"x": "2025-02-01 10:00:00", "y": 900}]},
+    "Event": [{"Name": "Big Billion Days", "Start": "2025-09-23 00:00:01", "End": "2025-09-30 23:59:59"}],
+})
+
+
+def test_pricehistory_api_mode_reads_history_without_browser():
+    html = PH_HTML.replace("</head>", PH_API_SCRIPT + "</head>")
+    fetcher = FakeFetcher({PH_URL: FakePage(200, html), PH_API_URL: FakePage(200, PH_API_REPLY)})
+    browser = FakeBrowser(charts=PH_CHARTS)
+    r = _run(PriceHistoryAppAdapter(), fetcher, browser, {"history_source": "api"})
+    url, headers, check_robots = fetcher.posted[0]
+    assert url == PH_API_URL and headers["page"] == "abc123" and headers["token"] == "ab" * 32
+    assert check_robots is False
+    assert browser.rendered == []                       # no browser needed
+    assert r.requires_js is False
+    assert len([p for p in r.history if p.price_type == "selling_price"]) == 2
+    assert [p.price for p in r.history if p.price_type == "offer_price"] == [Decimal("900")]  # null skipped
+    assert any("rejected" in w for w in r.warnings)
+    assert r.sale_bands[0].label == "Big Billion Days" and r.sale_bands[0].end.isoformat() == "2025-09-30"
+    assert r.missing_fields() == []
+
+
+def test_pricehistory_api_mode_falls_back_to_browser():
+    html = PH_HTML.replace("</head>", PH_API_SCRIPT + "</head>")
+    fetcher = FakeFetcher({PH_URL: FakePage(200, html)})      # API -> 404
+    browser = FakeBrowser(charts=PH_CHARTS, markers=PH_MARKERS)
+    r = _run(PriceHistoryAppAdapter(), fetcher, browser, {"history_source": "api"})
+    assert browser.rendered == [PH_URL]
+    assert any("call failed" in w for w in r.warnings)
+    assert r.history
+
+
+def test_pricehistory_default_mode_never_calls_api():
+    fetcher = FakeFetcher({PH_URL: FakePage(200, PH_HTML.replace("</head>", PH_API_SCRIPT + "</head>"))})
+    _run(PriceHistoryAppAdapter(), fetcher, FakeBrowser(charts=PH_CHARTS))
+    assert fetcher.posted == []
