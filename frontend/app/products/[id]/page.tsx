@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import PriceHistoryChart, { type StoreLine } from "@/components/PriceHistoryChart";
 import StoreComparison from "@/components/StoreComparison";
+import AdvisorPanel from "@/components/AdvisorPanel";
 import ProductImage from "@/components/ProductImage";
 import { ACTION, ActionBadge, KindTag, Limitations, Loading, Notice } from "@/components/ui";
 import { useApi } from "@/hooks/useApi";
@@ -29,6 +30,9 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [range, setRange] = useState<number | null>(365);
   const [tab, setTab] = useState<Tab>("Price history");
   const [allStores, setAllStores] = useState(false);
+  const [advisorOpen, setAdvisorOpen] = useState(false);
+  // "Should I buy?" links from the storefront open the product with the advisor already showing (?ask=1)
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("ask")) setAdvisorOpen(true); }, []);
   const [storePick, setStorePick] = useState<number | "none" | null>(null);   // null = follow the current-price store
   const { prefs } = usePrefs();
   const target = prefs.targets[id];
@@ -147,7 +151,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             {best
               ? <a href={best.v.url} target="_blank" rel="noreferrer" className="btn-buy w-full py-2.5">Go to {best.v.vendor} · {money(best.price)}</a>
               : <Link href={`/vendors?product=${id}`} className="btn-buy w-full py-2.5">Compare store prices now</Link>}
-            <Link href={`/advisor?product=${id}`} className="btn-secondary w-full">Should I buy now?</Link>
+            <button type="button" onClick={() => setAdvisorOpen(true)} className="btn-secondary w-full">Should I buy now?</button>
             <Link href="/settings" className="block pt-1 text-center text-[13px] font-semibold text-brand-600 hover:underline">
               {target ? `Your alert: ${money(target)}` : "Set a price alert"}
             </Link>
@@ -274,6 +278,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
           ))}
         </div>
       </div>
+      <AdvisorPanel open={advisorOpen} onClose={() => setAdvisorOpen(false)} productId={id} productName={product.name} />
     </div>
   );
 }

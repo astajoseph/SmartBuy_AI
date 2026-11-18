@@ -158,7 +158,7 @@ function Storefront() {
                   {needsAttention(p.tracking_status) && <div className="mt-1"><HealthText status={p.tracking_status} /></div>}
                   <div className="mt-auto space-y-1.5 pt-4">
                     <Link href={`/products/${p.id}`} className="btn-secondary w-full">View prices</Link>
-                    <Link href={`/advisor?product=${p.id}`} className="block py-1 text-center text-[13px] font-semibold text-brand-600 hover:underline">Should I buy?</Link>
+                    <Link href={`/products/${p.id}?ask=1`} className="block py-1 text-center text-[13px] font-semibold text-brand-600 hover:underline">Should I buy?</Link>
                   </div>
                 </article>
               );
