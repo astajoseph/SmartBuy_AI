@@ -197,7 +197,9 @@ def test_collector_checks_alert_products_sooner_and_out_of_stock_products_later(
     sid, _ = register_product(repo)
     repo.mark_source_attempt(sid, success=True)
     with repo.db.connection() as c:
-        c.execute("update product_sources set last_success_at = %s, last_attempt_at = %s",
+        # the adaptive schedule applies to sources that are re-read on an interval (history-once is the default)
+        c.execute("""update product_sources set last_success_at = %s, last_attempt_at = %s,
+                     adapter_config = adapter_config || '{"collection_mode": "recurring"}'::jsonb""",
                   (datetime.now(timezone.utc) - timedelta(minutes=200),) * 2)
     now = datetime.now(timezone.utc)
     assert schedule_service.due_sources(repo, now) == []                       # 200 min < 360 min baseline
