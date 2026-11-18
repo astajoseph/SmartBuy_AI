@@ -63,6 +63,49 @@ monthly hours — check the provider's current terms; a sleeping worker does not
 
 Running both A and B is safe (advisory locks + unique keys).
 
+## Current setup: Vercel (web) + Railway (API) + the owner's PC (daily store check)
+
+| Piece | Where | How it is configured |
+|---|---|---|
+| Web (Next.js) | Vercel, project root `frontend/` | Framework preset Next.js, no extra config |
+| API (FastAPI) | Railway, one service from this repo | `railway.json` (repo root): builds `backend/Dockerfile`, health check `/api/health`; the image listens on `$PORT` |
+| History load for new products | GitHub Actions `smartbuy-collect` | unchanged |
+| Daily store check, marketplace sellers, sale dates | Owner's PC, Windows task | `scripts/run_daily_local.ps1` (Amazon / Myntra block cloud servers) |
+
+### Railway (API)
+1. New project → *Deploy from GitHub repo* → this repository (root directory: repository root, so `railway.json` is used).
+2. Region: the closest Railway region to Supabase Seoul (`ap-northeast-2`) is **Southeast Asia (Singapore)**; set it under
+   Settings → Deploy → Region.
+3. Variables (Settings → Variables):
+
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | Supabase **session pooler** URL (port 5432, `*.pooler.supabase.com`); the direct `db.<ref>` host is IPv6-only |
+   | `DB_SCHEMA` | `smartbuy` |
+   | `ENVIRONMENT` | `production` |
+   | `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL` | as in `.env` |
+   | `SUPABASE_URL` | as in `.env` |
+   | `ADMIN_EMAILS` | as in `.env` |
+   | `CORS_ORIGINS` | the Vercel production URL, e.g. `https://smartbuy.vercel.app` (comma-separate several) |
+   | `CORS_ORIGIN_REGEX` | optional, to allow preview deployments, e.g. `^https://smartbuy-[a-z0-9-]+\.vercel\.app$` |
+   | `BRAVE_SEARCH_API_KEY` | optional (Admin → "Search now" / "Run discovery now") |
+4. Settings → Networking → *Generate domain*. Check `https://<domain>/api/health`.
+
+### Vercel (web)
+1. *Add New → Project* → import this repository → **Root Directory `frontend`** (framework detected as Next.js).
+2. Environment variables (Production and Preview), set **before** the first build because Next.js bakes them in:
+
+   | Variable | Value |
+   |---|---|
+   | `NEXT_PUBLIC_API_URL` | the Railway domain, e.g. `https://smartbuy-api.up.railway.app` (no trailing slash) |
+   | `NEXT_PUBLIC_SUPABASE_URL` | same as `SUPABASE_URL` |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the public anon key (never the service-role key) |
+3. Deploy, then put the Vercel URL into Railway's `CORS_ORIGINS` (Railway redeploys on variable changes).
+
+### Supabase Auth
+Authentication → URL Configuration: Site URL = the Vercel URL; redirect URLs = `<vercel-url>/login`,
+`<vercel-url>/reset-password` (keep the `http://localhost:3100/...` ones for local development).
+
 ## Hosting the API and web
 
 * Put the API in the **same region as the Supabase project** (`ap-northeast-2`, Seoul, for the current

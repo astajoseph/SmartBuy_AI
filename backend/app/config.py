@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     supabase_jwt_secret: SecretStr | None = None   # only for projects still on the legacy shared JWT secret
     admin_emails: str = ""                          # comma separated; these accounts become admins on sign-in
     cors_origins: str = "http://localhost:3000"
+    # optional, e.g. ^https://smartbuy-[a-z0-9-]+\.vercel\.app$ to also allow Vercel preview deployments
+    cors_origin_regex: str = ""
 
     # Registry files
     products_config: Path = PROJECT_ROOT / "config" / "products.yaml"

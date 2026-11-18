@@ -23,7 +23,8 @@ app = FastAPI(
     description="Indian-market purchase intelligence: price history, forecasts, sale-event analysis, "
                 "on-demand vendor/EMI comparison and an explainable purchase advisor.",
 )
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=False,
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_origin_regex=settings.cors_origin_regex or None,
+                   allow_credentials=False,
                    allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
 for r in (products.router, prices.router, vendors.router, recommendations.router, assistant.router,
